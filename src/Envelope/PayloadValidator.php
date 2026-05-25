@@ -14,9 +14,9 @@ use Fissible\Attest\Canonical\JcsEncoder;
  */
 final class PayloadValidator
 {
-    public const int JS_SAFE_MAX = 9007199254740991;   // 2^53 - 1
-    public const int JS_SAFE_MIN = -9007199254740991;
-    public const int MAX_CANONICAL_BYTES = 65536;
+    public const JS_SAFE_MAX = 9007199254740991;   // 2^53 - 1
+    public const JS_SAFE_MIN = -9007199254740991;
+    public const MAX_CANONICAL_BYTES = 65536;
 
     /**
      * Validate a payload and return it unchanged (for fluent use).

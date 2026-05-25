@@ -14,7 +14,7 @@ use ParagonIE\ConstantTime\Base64;
  */
 final readonly class Binary
 {
-    public const int MAX_BYTES = 65536;
+    public const MAX_BYTES = 65536;
 
     public function __construct(public string $base64)
     {

@@ -5,7 +5,7 @@ namespace Fissible\Attest\Chain;
 
 final readonly class PathMapper
 {
-    private const int MAX_CHAIN_ID_LEN = 191;
+    private const MAX_CHAIN_ID_LEN = 191;
 
     public function __construct(public string $rootDir)
     {
