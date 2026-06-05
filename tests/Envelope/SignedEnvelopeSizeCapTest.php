@@ -20,10 +20,10 @@ final class SignedEnvelopeSizeCapTest extends TestCase
         $kp = KeyPair::generate();
         $signer = new SodiumSigner($kp, keyId: 'k1');
 
-        // Envelope overhead (id, chain, seq, ts, type, key_id, sig_alg, sig, JSON syntax)
-        // is ~280 bytes, so a payload string of MAX - 280 chars produces an envelope
-        // exactly 1 byte over the 64KB cap.
-        $payload = ['data' => str_repeat('a', SignedEnvelope::MAX_SIGNED_ENVELOPE_BYTES - 280)];
+        // Sized comfortably over the cap so the test isn't sensitive to small
+        // envelope-frame changes (e.g., a different key_id length adjusting
+        // overhead by a byte or two).
+        $payload = ['data' => str_repeat('a', SignedEnvelope::MAX_SIGNED_ENVELOPE_BYTES)];
 
         $env = new EvidenceEnvelope(
             id: '01H00000000000000000000000',

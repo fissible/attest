@@ -18,7 +18,7 @@ final class PayloadValidator
 {
     public const JS_SAFE_MAX = 9007199254740991;   // 2^53 - 1
     public const JS_SAFE_MIN = -9007199254740991;
-    public const MAX_CANONICAL_BYTES = 61440;  // 60KB; leaves 4KB for envelope overhead under the 64KB signed cap
+    public const MAX_CANONICAL_BYTES = SignedEnvelope::MAX_SIGNED_ENVELOPE_BYTES - 4096;  // 4KB headroom for envelope frame overhead
 
     /**
      * Validate a payload and return it unchanged (for fluent use).
