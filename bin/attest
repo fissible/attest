@@ -1,0 +1,13 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+$autoloadCandidates = [
+    __DIR__ . '/../vendor/autoload.php',
+    __DIR__ . '/../../../autoload.php',
+];
+foreach ($autoloadCandidates as $c) {
+    if (is_file($c)) { require $c; break; }
+}
+
+exit((new Fissible\Attest\Cli\AttestCli())->run());
