@@ -10,13 +10,15 @@ use Fissible\Attest\Canonical\JcsEncoder;
  *   - allowed: string (UTF-8), int (JS-safe ±2^53-1), bool, null,
  *              list-of-allowed, assoc-array(string => allowed), Binary
  *   - rejected: float, DateTimeInterface, resource, invalid UTF-8, mixed-key arrays
- *   - canonical size cap: 64KB total
+ *   - canonical payload size cap: 60KB (sanity ceiling leaving ≥4KB for envelope
+ *     frame overhead under the authoritative 64KB signed envelope cap enforced by
+ *     SignedEnvelope::sign() and EnvelopeCodec::decodeSigned())
  */
 final class PayloadValidator
 {
     public const JS_SAFE_MAX = 9007199254740991;   // 2^53 - 1
     public const JS_SAFE_MIN = -9007199254740991;
-    public const MAX_CANONICAL_BYTES = 65536;
+    public const MAX_CANONICAL_BYTES = 61440;  // 60KB; leaves 4KB for envelope overhead under the 64KB signed cap
 
     /**
      * Validate a payload and return it unchanged (for fluent use).

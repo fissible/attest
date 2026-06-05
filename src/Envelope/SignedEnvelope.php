@@ -14,9 +14,17 @@ use ParagonIE\ConstantTime\Base64;
  *   - unsignedCanonicalBytes: the signed input to Ed25519
  *   - signedCanonicalBytes:   unsigned object + sig, used for self_hash /
  *                             prev_hash linking / storage
+ *
+ * Spec §5.3: total signed canonical envelope size ≤ 64KB.
+ * MAX_SIGNED_ENVELOPE_BYTES is the authoritative cap; it is enforced at
+ * sign() time and at EnvelopeCodec::decodeSigned() entry. The payload-only
+ * cap in PayloadValidator is a lower sanity ceiling that leaves room for
+ * envelope-frame overhead (timestamps, key_id, sig, prev_hash, etc.).
  */
 final readonly class SignedEnvelope
 {
+    public const MAX_SIGNED_ENVELOPE_BYTES = 65536;
+
     public function __construct(
         public EvidenceEnvelope $envelope,
         public string $sig,            // raw 64-byte signature
@@ -32,7 +40,15 @@ final readonly class SignedEnvelope
         }
         $unsignedBytes = JcsEncoder::encode($envelope->toUnsignedArray());
         $sig = $signer->sign($unsignedBytes);
-        return new self($envelope, $sig);
+        $candidate = new self($envelope, $sig);
+        $signedBytes = $candidate->signedCanonicalBytes();
+        if (strlen($signedBytes) > self::MAX_SIGNED_ENVELOPE_BYTES) {
+            throw new InvalidPayload(
+                'Signed canonical envelope exceeds ' . self::MAX_SIGNED_ENVELOPE_BYTES
+                . ' bytes (got ' . strlen($signedBytes) . ')'
+            );
+        }
+        return $candidate;
     }
 
     public function unsignedCanonicalBytes(): string

@@ -9,6 +9,12 @@ final class EnvelopeCodec
 {
     public static function decodeSigned(string $signedCanonicalBytes): SignedEnvelope
     {
+        if (strlen($signedCanonicalBytes) > SignedEnvelope::MAX_SIGNED_ENVELOPE_BYTES) {
+            throw new InvalidPayload(
+                'Signed canonical envelope exceeds ' . SignedEnvelope::MAX_SIGNED_ENVELOPE_BYTES
+                . ' bytes (got ' . strlen($signedCanonicalBytes) . ')'
+            );
+        }
         try {
             $arr = json_decode($signedCanonicalBytes, true, flags: JSON_THROW_ON_ERROR);
         } catch (\JsonException $e) {
