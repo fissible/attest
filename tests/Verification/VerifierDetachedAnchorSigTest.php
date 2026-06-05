@@ -108,6 +108,32 @@ final class VerifierDetachedAnchorSigTest extends TestCase
         $this->assertSame(VerificationOutcome::VERIFIED, $result->outcome);
     }
 
+    public function test_mixed_trusted_and_untrusted_anchor_envelopes_in_same_group_satisfy_min_anchor(): void
+    {
+        // Build chain seqs 1..3 signed by trustedKp
+        $records = $this->appendRecords(3);
+
+        // Build a real anchor receipt for [1,3] via NullDriver
+        $target = $this->targetFor($records);
+        $receipt = (new NullDriver())->anchor($target);
+
+        // seq 4: trusted anchor envelope (TRUSTED classification)
+        $this->appendAnchorEnvelopeWithSigner($receipt, $this->trustedSigner);
+
+        // seq 5: same anchor_id payload, signed by untrustedKp (UNTRUSTED_VALID classification)
+        // Both envelopes share the same anchor_id, so AnchorSetResolver groups them together.
+        $payload = AnchorEnvelope::submittedPayload($receipt);
+        $untrustedChain = EvidenceChain::open($this->store, 'tenant:5', $this->untrustedSigner);
+        $untrustedChain->record(AnchorEnvelope::SUBMITTED_TYPE, $payload);
+
+        // Verify [1,3] with requireTrustedKey=true.
+        // The group has one TRUSTED + one UNTRUSTED_VALID envelope.
+        // $allUntrusted is false, so the group is kept and the outcome should be VERIFIED.
+        $result = $this->verifier(AnchorOutcome::LOCAL_ONLY)->verifyChain('tenant:5', 1, 3);
+
+        $this->assertSame(VerificationOutcome::VERIFIED, $result->outcome);
+    }
+
     /**
      * @return list<SignedEnvelope>
      */

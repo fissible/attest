@@ -20,23 +20,9 @@ final class DetachedAnchorVerifier
         $out = [];
         foreach ($envelopes as $signed) {
             $result = $this->signatures->verify($signed);
-            $classification = $this->classifyResult($result);
+            $classification = DetachedAnchorClassification::fromSignatureResult($result);
             $out[] = new ClassifiedDetachedAnchor($signed, $classification, $result);
         }
         return $out;
-    }
-
-    public function classifyResult(SignatureVerificationResult $result): DetachedAnchorClassification
-    {
-        if ($result->unsupportedAlgorithm) {
-            return DetachedAnchorClassification::UNSUPPORTED_ALG;
-        }
-        if ($result->invalid) {
-            return DetachedAnchorClassification::INVALID;
-        }
-        if ($result->hasTrustedMatch()) {
-            return DetachedAnchorClassification::TRUSTED;
-        }
-        return DetachedAnchorClassification::UNTRUSTED_VALID;
     }
 }

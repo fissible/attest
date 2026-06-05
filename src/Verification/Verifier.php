@@ -806,7 +806,7 @@ final class Verifier
                 continue;
             }
             $result = $rangeSignatureResults[$idx];
-            $classification = $this->detachedAnchorVerifier->classifyResult($result);
+            $classification = DetachedAnchorClassification::fromSignatureResult($result);
             $classified[] = new ClassifiedDetachedAnchor($signed, $classification, $result);
         }
 
