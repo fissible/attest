@@ -49,9 +49,9 @@ final class VerifierChainTest extends TestCase
 
         $this->assertSame(VerificationOutcome::VERIFIED, $result->outcome);
         $this->assertTrue($result->isVerified());
-        $this->assertSame(3, $result->stats->envelopeCount);
-        $this->assertSame(3, $result->stats->trustedSignatureCount);
-        $this->assertSame(0, $result->stats->untrustedSignatureCount);
+        $this->assertSame(3, $result->chainStats->envelopeCount);
+        $this->assertSame(3, $result->chainStats->trustedSignatureCount);
+        $this->assertSame(0, $result->chainStats->untrustedSignatureCount);
         $this->assertSame([], $result->warnings);
     }
 
@@ -181,7 +181,7 @@ final class VerifierChainTest extends TestCase
         ))->verifyChain('tenant:5', 1, 2);
 
         $this->assertSame(VerificationOutcome::INTEGRITY_VERIFIED_UNTRUSTED, $result->outcome);
-        $this->assertSame(2, $result->stats->untrustedSignatureCount);
+        $this->assertSame(2, $result->chainStats->untrustedSignatureCount);
         $this->assertFalse($result->signatureResults[0]->invalid);
     }
 

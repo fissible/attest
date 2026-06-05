@@ -22,7 +22,14 @@ final class Verifier
     private readonly DetachedAnchorVerifier $detachedAnchorVerifier;
 
     /**
+     * @var list<SignedEnvelope>
+     * @phpstan-ignore property.onlyWritten (Task 3.6 will wire this into anchorEnvelopesFor())
+     */
+    private array $explicitDetachedEnvelopes;
+
+    /**
      * @param iterable<AnchorDriver> $anchorDrivers
+     * @param iterable<SignedEnvelope> $detachedAnchorEnvelopes
      */
     public function __construct(
         private readonly ChainStore $store,
@@ -30,11 +37,15 @@ final class Verifier
         private readonly VerificationPolicy $policy = new VerificationPolicy(),
         iterable $anchorDrivers = [],
         private readonly HeaderProviderSet $headers = new HeaderProviderSet(),
+        iterable $detachedAnchorEnvelopes = [],
     ) {
         foreach ($anchorDrivers as $driver) {
             $this->anchorDrivers[$driver->name()] = $driver;
         }
         $this->detachedAnchorVerifier = new DetachedAnchorVerifier($signatures);
+        $this->explicitDetachedEnvelopes = is_array($detachedAnchorEnvelopes)
+            ? array_values($detachedAnchorEnvelopes)
+            : iterator_to_array($detachedAnchorEnvelopes, false);
     }
 
     public function verifyChain(string $chainId, int $fromSeq = 1, ?int $toSeq = null): VerificationResult
@@ -185,7 +196,7 @@ final class Verifier
             if ($signatureResult->invalid) {
                 return new VerificationResult(
                     outcome: VerificationOutcome::INVALID_SIGNATURE,
-                    stats: new ChainStats(
+                    chainStats: new ChainStats(
                         chainId: $chainId,
                         fromSeq: $fromSeq,
                         toSeq: $toSeq,
@@ -283,7 +294,7 @@ final class Verifier
         if ($this->policy->requireTrustedKey && $untrustedSignatures > 0) {
             return new VerificationResult(
                 outcome: VerificationOutcome::INTEGRITY_VERIFIED_UNTRUSTED,
-                stats: $stats,
+                chainStats: $stats,
                 warnings: $warnings,
                 message: 'Chain structure is valid, but one or more signatures did not match a trusted key',
                 signatureResults: $signatureResults,
@@ -293,7 +304,7 @@ final class Verifier
 
         return new VerificationResult(
             outcome: VerificationOutcome::VERIFIED,
-            stats: $stats,
+            chainStats: $stats,
             warnings: $warnings,
             signatureResults: $signatureResults,
             anchorVerification: $anchorVerification,
@@ -406,7 +417,7 @@ final class Verifier
             if (! $group->valid && in_array($group->anchorId, $expectedAnchorIds, true)) {
                 return new VerificationResult(
                     outcome: VerificationOutcome::INVALID_ANCHOR,
-                    stats: $stats,
+                    chainStats: $stats,
                     warnings: $warnings,
                     message: $group->message,
                     signatureResults: $signatureResults,
@@ -426,7 +437,7 @@ final class Verifier
                 if ($driver === null) {
                     return new VerificationResult(
                         outcome: VerificationOutcome::INVALID_ANCHOR,
-                        stats: $stats,
+                        chainStats: $stats,
                         warnings: $warnings,
                         message: 'No anchor driver configured for receipt driver: ' . $group->receipt->driverName,
                         signatureResults: $signatureResults,
@@ -437,7 +448,7 @@ final class Verifier
                 if ($verification->outcome === AnchorOutcome::INVALID) {
                     return new VerificationResult(
                         outcome: VerificationOutcome::INVALID_ANCHOR,
-                        stats: $stats,
+                        chainStats: $stats,
                         warnings: [...$warnings, ...$verification->warnings],
                         message: $verification->message,
                         signatureResults: $signatureResults,
@@ -449,7 +460,7 @@ final class Verifier
                     if (! $this->policy->allowProviderDisagreement || $verification->strongestPassingOutcome === null) {
                         return new VerificationResult(
                             outcome: VerificationOutcome::PROVIDER_DISAGREEMENT,
-                            stats: $stats,
+                            chainStats: $stats,
                             warnings: [...$warnings, ...$verification->warnings],
                             message: $verification->message,
                             signatureResults: $signatureResults,
@@ -498,7 +509,7 @@ final class Verifier
         if ($sameRangeDifferentRoot instanceof ResolvedAnchor) {
             return new VerificationResult(
                 outcome: VerificationOutcome::INVALID_ANCHOR,
-                stats: $stats,
+                chainStats: $stats,
                 warnings: $warnings,
                 message: 'Anchor range exists but root does not match recomputed chain bytes',
                 signatureResults: $signatureResults,
@@ -521,7 +532,7 @@ final class Verifier
         if ($belowMinimum instanceof AnchorVerification) {
             return new VerificationResult(
                 outcome: VerificationOutcome::ANCHOR_BELOW_MIN,
-                stats: $stats,
+                chainStats: $stats,
                 warnings: [...$warnings, ...$belowMinimum->warnings],
                 message: sprintf(
                     'Anchor outcome %s is below required minimum %s',
@@ -535,7 +546,7 @@ final class Verifier
 
         return new VerificationResult(
             outcome: VerificationOutcome::ANCHOR_BELOW_MIN,
-            stats: $stats,
+            chainStats: $stats,
             warnings: $warnings,
             message: 'No exact anchor matched requested range and recomputed Merkle root',
             signatureResults: $signatureResults,
@@ -585,7 +596,7 @@ final class Verifier
             if ($receipt->target->rootHex !== $expectedRoot) {
                 return new VerificationResult(
                     outcome: VerificationOutcome::INVALID_ANCHOR,
-                    stats: $stats,
+                    chainStats: $stats,
                     warnings: $warnings,
                     message: 'Anchor range exists but root does not match recomputed chain bytes',
                     signatureResults: $signatureResults,
@@ -596,7 +607,7 @@ final class Verifier
             if ($driver === null) {
                 return new VerificationResult(
                     outcome: VerificationOutcome::INVALID_ANCHOR,
-                    stats: $stats,
+                    chainStats: $stats,
                     warnings: $warnings,
                     message: 'No anchor driver configured for receipt driver: ' . $receipt->driverName,
                     signatureResults: $signatureResults,
@@ -607,7 +618,7 @@ final class Verifier
             if ($verification->outcome === AnchorOutcome::INVALID) {
                 return new VerificationResult(
                     outcome: VerificationOutcome::INVALID_ANCHOR,
-                    stats: $stats,
+                    chainStats: $stats,
                     warnings: [...$warnings, ...$verification->warnings],
                     message: $verification->message,
                     signatureResults: $signatureResults,
@@ -619,7 +630,7 @@ final class Verifier
                 if (! $this->policy->allowProviderDisagreement || $verification->strongestPassingOutcome === null) {
                     return new VerificationResult(
                         outcome: VerificationOutcome::PROVIDER_DISAGREEMENT,
-                        stats: $stats,
+                        chainStats: $stats,
                         warnings: [...$warnings, ...$verification->warnings],
                         message: $verification->message,
                         signatureResults: $signatureResults,
@@ -687,7 +698,7 @@ final class Verifier
 
                 return new VerificationResult(
                     outcome: VerificationOutcome::ANCHOR_BELOW_MIN,
-                    stats: $stats,
+                    chainStats: $stats,
                     warnings: [
                         ...$warnings,
                         new Warning(
@@ -718,7 +729,7 @@ final class Verifier
             if (! $verification->outcome->meets($minimum)) {
                 return new VerificationResult(
                     outcome: VerificationOutcome::ANCHOR_BELOW_MIN,
-                    stats: $stats,
+                    chainStats: $stats,
                     warnings: [...$warnings, ...$verification->warnings],
                     message: sprintf(
                         'Anchor outcome %s is below required minimum %s',
@@ -768,7 +779,7 @@ final class Verifier
     ): VerificationResult {
         return new VerificationResult(
             outcome: VerificationOutcome::ANCHOR_BELOW_MIN,
-            stats: $stats,
+            chainStats: $stats,
             warnings: [
                 ...$warnings,
                 new Warning(
@@ -910,7 +921,7 @@ final class Verifier
     ): VerificationResult {
         return new VerificationResult(
             outcome: VerificationOutcome::INVALID_CHAIN,
-            stats: new ChainStats(
+            chainStats: new ChainStats(
                 chainId: $chainId,
                 fromSeq: $fromSeq,
                 toSeq: $toSeq,

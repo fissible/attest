@@ -11,7 +11,7 @@ final readonly class VerificationResult
      */
     public function __construct(
         public VerificationOutcome $outcome,
-        public ChainStats $stats,
+        public ChainStats $chainStats,
         public array $warnings = [],
         public ?int $brokenAtSeq = null,
         public ?string $message = null,

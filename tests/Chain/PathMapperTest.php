@@ -72,6 +72,22 @@ final class PathMapperTest extends TestCase
         $mapper->jsonlPath('');
     }
 
+    public function test_rejects_forward_slash_in_chain_id(): void
+    {
+        $mapper = new PathMapper('/tmp/x');
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/slash/i');
+        $mapper->jsonlPath('tenant/5');
+    }
+
+    public function test_rejects_backslash_in_chain_id(): void
+    {
+        $mapper = new PathMapper('/tmp/x');
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/slash/i');
+        $mapper->jsonlPath("tenant\\5");
+    }
+
     public function test_accepts_normal_labels(): void
     {
         $mapper = new PathMapper('/var/lib/attest');

@@ -57,9 +57,13 @@ final readonly class PathMapper
                 'chain_id exceeds ' . self::MAX_CHAIN_ID_LEN . ' bytes'
             );
         }
-        // Reject null byte and other control characters (0x00-0x1F, 0x7F).
         if (preg_match('/[\x00-\x1F\x7F]/', $chainId)) {
             throw new \InvalidArgumentException('chain_id contains control characters');
+        }
+        if (str_contains($chainId, '/') || str_contains($chainId, '\\')) {
+            throw new \InvalidArgumentException(
+                'chain_id may not contain forward or back slashes'
+            );
         }
     }
 }
