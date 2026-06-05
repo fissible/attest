@@ -79,9 +79,9 @@ final class PayloadValidatorTest extends TestCase
 
     public function test_accepts_binary_wrapper(): void
     {
+        // ensure() returns the canonical form: Binary → ['_attest_binary' => base64]
         $result = PayloadValidator::ensure(['b' => Binary::ofBase64('aGVsbG8=')]);
-        $this->assertInstanceOf(Binary::class, $result['b']);
-        $this->assertSame('aGVsbG8=', $result['b']->base64);
+        $this->assertSame(['_attest_binary' => 'aGVsbG8='], $result['b']);
     }
 
     public function test_rejects_binary_over_size_cap(): void
@@ -96,7 +96,8 @@ final class PayloadValidatorTest extends TestCase
     {
         $big = ['s' => str_repeat('x', 70 * 1024)];
         $this->expectException(InvalidPayload::class);
-        $this->expectExceptionMessage('exceeds 64KB');
+        // Message format: 'Canonical payload exceeds <MAX_CANONICAL_BYTES> bytes (got ...)'
+        $this->expectExceptionMessageMatches('/Canonical payload exceeds \d+ bytes/');
         PayloadValidator::ensure($big);
     }
 }

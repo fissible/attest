@@ -38,10 +38,10 @@ final readonly class EvidenceChain
         ?string $correlation = null,
         ?string $tenant = null,
     ): SignedEnvelope {
-        PayloadValidator::ensure($payload);
+        $canonicalPayload = PayloadValidator::ensure($payload);
 
         return $this->store->append($this->chainId, function (AppendContext $ctx) use (
-            $type, $payload, $subject, $correlation, $tenant
+            $type, $canonicalPayload, $subject, $correlation, $tenant
         ) {
             $env = new EvidenceEnvelope(
                 id: (string) Ulid::generate(),
@@ -49,7 +49,7 @@ final readonly class EvidenceChain
                 seq: $ctx->sequence,
                 ts: $ctx->timestampIso8601,
                 type: $type,
-                payload: $payload,
+                payload: $canonicalPayload,
                 prevHash: $ctx->prevHash,
                 keyId: $this->signer->keyId(),
                 sigAlg: 'ed25519',

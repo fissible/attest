@@ -27,13 +27,15 @@ final class PayloadValidator
     public static function ensure(array $payload): array
     {
         self::walk($payload, '');
-        $canonical = JcsEncoder::encode(self::toCanonical($payload));
-        if (strlen($canonical) > self::MAX_CANONICAL_BYTES) {
+        /** @var array<array-key, mixed> $canonical */
+        $canonical = self::toCanonical($payload);
+        $bytes = JcsEncoder::encode($canonical);
+        if (strlen($bytes) > self::MAX_CANONICAL_BYTES) {
             throw new InvalidPayload(
-                'Canonical payload exceeds 64KB (got ' . strlen($canonical) . ' bytes)'
+                'Canonical payload exceeds ' . self::MAX_CANONICAL_BYTES . ' bytes (got ' . strlen($bytes) . ')'
             );
         }
-        return $payload;
+        return $canonical;
     }
 
     private static function walk(mixed $value, string $path): void
