@@ -1,0 +1,184 @@
+<?php
+declare(strict_types=1);
+
+namespace Fissible\Attest\Tests\Cli\Command;
+
+use Fissible\Attest\Anchor\AnchorService;
+use Fissible\Attest\Anchor\FileAnchorClaimStore;
+use Fissible\Attest\Anchor\NullDriver;
+use Fissible\Attest\Chain\EvidenceChain;
+use Fissible\Attest\Chain\FileChainStore;
+use Fissible\Attest\Cli\Command\BundleExportCommand;
+use Fissible\Attest\Signing\KeyPair;
+use Fissible\Attest\Signing\SodiumSigner;
+use PHPUnit\Framework\TestCase;
+use Symfony\Component\Console\Application;
+use Symfony\Component\Console\Tester\CommandTester;
+
+final class BundleExportCommandTest extends TestCase
+{
+    private string $tmpDir;
+    private string $outDir;
+
+    protected function setUp(): void
+    {
+        $this->tmpDir = sys_get_temp_dir() . '/attest-bec-' . bin2hex(random_bytes(8));
+        $this->outDir = $this->tmpDir . '/out';
+        mkdir($this->tmpDir, 0o700, recursive: true);
+        mkdir($this->outDir, 0o700, recursive: true);
+    }
+
+    protected function tearDown(): void
+    {
+        exec('rm -rf ' . escapeshellarg($this->tmpDir));
+    }
+
+    private function makeTester(): CommandTester
+    {
+        $application = new Application();
+        $application->add(new BundleExportCommand());
+        $application->setAutoExit(false);
+        $command = $application->find('bundle:export');
+        return new CommandTester($command);
+    }
+
+    /**
+     * Build a chain, anchor a range with NullDriver, return store.
+     */
+    private function buildChainWithAnchor(
+        string $chainId,
+        int $count,
+        int $anchorFrom,
+        int $anchorTo,
+    ): void {
+        $store = new FileChainStore($this->tmpDir);
+        $kp = KeyPair::generate();
+        $signer = new SodiumSigner($kp, keyId: 'k1');
+        $chain = EvidenceChain::open($store, $chainId, $signer);
+        for ($i = 1; $i <= $count; $i++) {
+            $chain->record('app.event', ['n' => $i]);
+        }
+        $claimStore = new FileAnchorClaimStore($this->tmpDir);
+        $service = new AnchorService($store, $claimStore, $signer);
+        $service->anchorRange($chainId, $anchorFrom, $anchorTo, new NullDriver());
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Test 1: Happy path — anchored [1,5] range; export succeeds, file exists
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function test_exports_bundle_to_path(): void
+    {
+        $this->buildChainWithAnchor('tenant:5', 5, 1, 5);
+
+        $outPath = $this->outDir . '/incident.attest';
+        $tester = $this->makeTester();
+        $exitCode = $tester->execute([
+            '--storage-root' => $this->tmpDir,
+            '--chain'        => 'tenant:5',
+            '--from'         => '1',
+            '--to'           => '5',
+            '--out'          => $outPath,
+        ]);
+
+        self::assertSame(0, $exitCode, 'Expected exit 0; output: ' . $tester->getDisplay());
+        self::assertFileExists($outPath, 'Bundle file must exist after export');
+        self::assertStringContainsString('bundle exported to', $tester->getDisplay());
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Test 2: Wider-only anchor → exit 4 + BundleExportException message
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function test_refuses_export_when_only_wider_anchor_exists(): void
+    {
+        // Anchor [1,10] but request [1,5]
+        $this->buildChainWithAnchor('tenant:5', 10, 1, 10);
+
+        $outPath = $this->outDir . '/bad.attest';
+        $tester = $this->makeTester();
+        $exitCode = $tester->execute([
+            '--storage-root' => $this->tmpDir,
+            '--chain'        => 'tenant:5',
+            '--from'         => '1',
+            '--to'           => '5',
+            '--out'          => $outPath,
+        ], ['catch_exceptions' => true]);
+
+        self::assertSame(4, $exitCode, 'Expected exit 4; output: ' . $tester->getDisplay());
+        self::assertStringContainsString('exact range', strtolower($tester->getDisplay()));
+        self::assertFileDoesNotExist($outPath, 'Bundle file must NOT exist after failed export');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Test 3: Missing required --chain → exit 1
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function test_exits_1_on_invalid_options(): void
+    {
+        $outPath = $this->outDir . '/out.attest';
+        $tester = $this->makeTester();
+        $exitCode = $tester->execute([
+            '--storage-root' => $this->tmpDir,
+            // --chain deliberately omitted
+            '--from' => '1',
+            '--to'   => '5',
+            '--out'  => $outPath,
+        ]);
+
+        self::assertSame(1, $exitCode);
+        self::assertStringContainsString('error', strtolower($tester->getDisplay()));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Test 4: PENDING anchor warning [INCOMPLETE — NullDriver produces SUBMITTED]
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function test_emits_pending_warning_when_anchor_is_pending(): void
+    {
+        $this->markTestIncomplete(
+            'NullDriver produces SUBMITTED state, not PENDING. '
+            . 'OTS-pending warning tests require HTTP mocking (lands in a later task).'
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Test 5: --json output has expected attest.cli.export.v1 schema
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function test_json_output_has_expected_schema(): void
+    {
+        $this->buildChainWithAnchor('tenant:5', 5, 1, 5);
+
+        $outPath = $this->outDir . '/incident.attest';
+        $tester = $this->makeTester();
+        $exitCode = $tester->execute([
+            '--storage-root' => $this->tmpDir,
+            '--chain'        => 'tenant:5',
+            '--from'         => '1',
+            '--to'           => '5',
+            '--out'          => $outPath,
+            '--json'         => true,
+        ]);
+
+        self::assertSame(0, $exitCode, 'Expected exit 0; output: ' . $tester->getDisplay());
+
+        $display = $tester->getDisplay();
+        $payload = json_decode($display, true);
+        self::assertIsArray($payload, 'Output must be valid JSON; got: ' . $display);
+        self::assertSame('attest.cli.export.v1', $payload['format_version']);
+        self::assertSame('bundle:export', $payload['command']);
+        self::assertSame($outPath, $payload['out']);
+        self::assertIsInt($payload['bytes_written']);
+        self::assertGreaterThan(0, $payload['bytes_written']);
+        self::assertArrayHasKey('chain_segments', $payload);
+        self::assertArrayHasKey('anchors', $payload);
+        self::assertArrayHasKey('warnings', $payload);
+        self::assertIsArray($payload['chain_segments']);
+        self::assertCount(1, $payload['chain_segments']);
+        self::assertSame('tenant:5', $payload['chain_segments'][0]['chain_id']);
+        self::assertSame(1, $payload['chain_segments'][0]['from_seq']);
+        self::assertSame(5, $payload['chain_segments'][0]['to_seq']);
+        self::assertSame(5, $payload['chain_segments'][0]['envelope_count']);
+    }
+}
