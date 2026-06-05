@@ -6,7 +6,7 @@ namespace Fissible\Attest\Chain;
 use Fissible\Attest\Envelope\EnvelopeCodec;
 use Fissible\Attest\Envelope\SignedEnvelope;
 
-final class FileChainStore implements ChainStore
+final class FileChainStore implements ChainStore, RawChainStore
 {
     private readonly PathMapper $mapper;
 
@@ -179,6 +179,64 @@ final class FileChainStore implements ChainStore
             }
         } finally {
             fclose($fp);
+        }
+    }
+
+    public function readRawRange(string $chainId, int $fromSeq, ?int $toSeq = null): iterable
+    {
+        if ($fromSeq < 1) {
+            throw new \InvalidArgumentException('fromSeq must be >= 1');
+        }
+        if ($toSeq !== null && $toSeq < $fromSeq) {
+            throw new \InvalidArgumentException('toSeq must be >= fromSeq');
+        }
+
+        $path = $this->mapper->jsonlPath($chainId);
+        if (! is_file($path)) {
+            return;
+        }
+
+        $lockPath = $this->mapper->lockPath($chainId);
+        @mkdir(dirname($lockPath), 0o700, recursive: true);
+        $lockFp = fopen($lockPath, 'cb');
+        if ($lockFp === false) {
+            throw new ChainLockUnavailable($chainId);
+        }
+
+        try {
+            if (! flock($lockFp, LOCK_SH)) {
+                throw new ChainLockUnavailable($chainId);
+            }
+
+            $fp = fopen($path, 'rb');
+            if ($fp === false) {
+                return;
+            }
+
+            try {
+                while (($line = fgets($fp)) !== false) {
+                    if (! str_ends_with($line, "\n")) {
+                        break;
+                    }
+                    $raw = rtrim($line, "\r\n");
+                    if ($raw === '') {
+                        continue;
+                    }
+                    $env = EnvelopeCodec::decodeSigned($raw);
+                    if ($env->envelope->seq < $fromSeq) {
+                        continue;
+                    }
+                    if ($toSeq !== null && $env->envelope->seq > $toSeq) {
+                        break;
+                    }
+                    yield $raw;
+                }
+            } finally {
+                fclose($fp);
+            }
+        } finally {
+            flock($lockFp, LOCK_UN);
+            fclose($lockFp);
         }
     }
 
