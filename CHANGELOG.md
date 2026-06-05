@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.2.0-alpha] — 2026-06-04
+
 ### Added
 - RFC 6962-style SHA-256 Merkle tree primitives for signed envelope byte ranges.
 - Anchor value objects, deterministic `anchor_id` derivation, and `attest.anchor.submitted` / `attest.anchor.upgraded` payload parsing.
