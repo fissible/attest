@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Added
+- RFC 6962-style SHA-256 Merkle tree primitives for signed envelope byte ranges.
+- Anchor value objects, deterministic `anchor_id` derivation, and `attest.anchor.submitted` / `attest.anchor.upgraded` payload parsing.
+- File-backed anchor claim store and anchor orchestration service with raw canonical byte anchoring where the store supports it.
+- OpenTimestamps proof codec, calendar client, and driver with pending and upgraded receipt handling.
+- `NullDriver` for explicit local-only anchor receipts.
+- Bitcoin Core RPC and Esplora header providers with active-chain height lookup.
+- Signature/key verification helpers for trusted Ed25519 key matching by `key_id` or fingerprint.
+- Verifier state machine for chain integrity, raw-byte canonical identity, trusted-key policy, exact/range anchor coverage, `minAnchorOutcome`, and provider disagreement handling.
+
 ## [0.1.0-alpha] — 2026-05-25
 
 Proof-of-life release. Not on Packagist. Use via path repository for local testing only.
