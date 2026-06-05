@@ -3,17 +3,133 @@ declare(strict_types=1);
 
 namespace Fissible\Attest\Cli\Command;
 
+use Fissible\Attest\Chain\FileChainStore;
+use Fissible\Attest\Cli\Output\HumanResultEmitter;
+use Fissible\Attest\Cli\Output\JsonResultEmitter;
+use Fissible\Attest\Cli\Support\HeaderProviderFactory;
+use Fissible\Attest\Cli\Support\MinAnchorOption;
+use Fissible\Attest\Cli\Support\TrustedKeyLoader;
+use Fissible\Attest\Verification\SignatureVerifier;
+use Fissible\Attest\Verification\VerificationOutcome;
+use Fissible\Attest\Verification\VerificationPolicy;
+use Fissible\Attest\Verification\Verifier;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
 #[AsCommand(name: 'verify', description: 'Verify a chain segment against trusted keys and policy.')]
 final class VerifyCommand extends Command
 {
+    protected function configure(): void
+    {
+        $this
+            ->addOption('storage-root', null, InputOption::VALUE_REQUIRED, 'Path to the FileChainStore root directory.')
+            ->addOption('chain', null, InputOption::VALUE_REQUIRED, 'Chain ID to verify.')
+            ->addOption('from', null, InputOption::VALUE_REQUIRED, 'Start sequence number (default 1).', '1')
+            ->addOption('to', null, InputOption::VALUE_REQUIRED, 'End sequence number (default: chain tail).')
+            ->addOption(
+                'trusted-key',
+                null,
+                InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY,
+                'Inline trusted key in the format <key_id>=<base64-pubkey>. Repeatable.',
+            )
+            ->addOption(
+                'trusted-key-file',
+                null,
+                InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY,
+                'Path to a .pub file containing a base64-encoded Ed25519 public key. Repeatable.',
+            )
+            ->addOption('min-anchor', null, InputOption::VALUE_REQUIRED, 'Minimum anchor outcome required (local_only, pending, upgraded_no_headers, remote_header_confirmed, bitcoin_verified).')
+            ->addOption('allow-provider-disagreement', null, InputOption::VALUE_NONE, 'Allow header-provider disagreement; use strongest passing outcome.')
+            ->addOption('allow-untrusted', null, InputOption::VALUE_NONE, 'Treat INTEGRITY_VERIFIED_UNTRUSTED as success (exit 0 instead of 2).')
+            ->addOption('bitcoin-core-rpc', null, InputOption::VALUE_REQUIRED, 'Bitcoin Core JSON-RPC URL for block-header verification.')
+            ->addOption('bitcoin-core-cookie', null, InputOption::VALUE_REQUIRED, 'Path to Bitcoin Core .cookie file for RPC authentication.')
+            ->addOption('esplora-url', null, InputOption::VALUE_REQUIRED, 'Esplora REST API base URL for block-header verification.')
+            ->addOption('json', null, InputOption::VALUE_NONE, 'Emit machine-readable JSON output (attest.cli.result.v1).');
+    }
+
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $output->writeln('verify: stub implementation; wired in Task 3.8');
-        return Command::SUCCESS;
+        // ── Option validation ────────────────────────────────────────────────
+        try {
+            $storageRoot = $input->getOption('storage-root');
+            $chainId = $input->getOption('chain');
+
+            if (! is_string($storageRoot) || ! is_dir($storageRoot)) {
+                $output->writeln('error: --storage-root must point to an existing directory');
+                return 1;
+            }
+            if (! is_string($chainId) || $chainId === '') {
+                $output->writeln('error: --chain is required and must not be empty');
+                return 1;
+            }
+
+            $fromSeq = (int) ($input->getOption('from') ?? 1);
+            $toRaw = $input->getOption('to');
+            $toSeq = $toRaw !== null ? (int) $toRaw : null;
+
+            $minAnchor = MinAnchorOption::parse($input->getOption('min-anchor'));
+
+            $trustedKeys = TrustedKeyLoader::load(
+                $input->getOption('trusted-key') ?: [],
+                $input->getOption('trusted-key-file') ?: [],
+            );
+
+            $headers = HeaderProviderFactory::build(
+                $input->getOption('bitcoin-core-rpc'),
+                $input->getOption('bitcoin-core-cookie'),
+                $input->getOption('esplora-url'),
+            );
+        } catch (\InvalidArgumentException | \RuntimeException $e) {
+            $output->writeln('error: ' . $e->getMessage());
+            return 1;
+        }
+
+        // ── Build and run verification ───────────────────────────────────────
+        $store = new FileChainStore($storageRoot);
+        $verifier = new Verifier(
+            store: $store,
+            signatures: new SignatureVerifier($trustedKeys),
+            policy: new VerificationPolicy(
+                minAnchorOutcome: $minAnchor,
+                allowProviderDisagreement: (bool) $input->getOption('allow-provider-disagreement'),
+                requireTrustedKey: ! $input->getOption('allow-untrusted'),
+            ),
+            headers: $headers,
+        );
+
+        $result = $verifier->verifyChain($chainId, $fromSeq, $toSeq);
+
+        $exit = self::exitCodeFor($result->outcome, (bool) $input->getOption('allow-untrusted'));
+
+        $emitter = $input->getOption('json') ? new JsonResultEmitter() : new HumanResultEmitter();
+        $emitter->emit('verify', $result, $exit, $output);
+
+        return $exit;
+    }
+
+    /**
+     * Spec §13 exit-code mapping.
+     *
+     * 0 — VERIFIED (also INTEGRITY_VERIFIED_UNTRUSTED with --allow-untrusted)
+     * 1 — CLI/config/runtime error before a VerificationOutcome  [handled above]
+     * 2 — INTEGRITY_VERIFIED_UNTRUSTED (without --allow-untrusted)
+     * 3 — ANCHOR_BELOW_MIN
+     * 4 — INVALID_CHAIN / INVALID_SIGNATURE / INVALID_ANCHOR
+     * 5 — PROVIDER_DISAGREEMENT
+     */
+    private static function exitCodeFor(VerificationOutcome $outcome, bool $allowUntrusted): int
+    {
+        return match ($outcome) {
+            VerificationOutcome::VERIFIED                   => 0,
+            VerificationOutcome::INTEGRITY_VERIFIED_UNTRUSTED => $allowUntrusted ? 0 : 2,
+            VerificationOutcome::ANCHOR_BELOW_MIN           => 3,
+            VerificationOutcome::INVALID_CHAIN,
+            VerificationOutcome::INVALID_SIGNATURE,
+            VerificationOutcome::INVALID_ANCHOR             => 4,
+            VerificationOutcome::PROVIDER_DISAGREEMENT      => 5,
+        };
     }
 }
