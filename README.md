@@ -87,6 +87,104 @@ Binary blobs are stored in canonical form as `{"_attest_binary": "<base64>"}` an
 
 The total signed canonical envelope size is capped at 64KB; payloads approaching that size will be rejected at `record()` time.
 
+## CLI
+
+`bin/attest` is a Symfony Console application. Install globally or invoke via Composer:
+
+```
+vendor/bin/attest <command> [options]
+```
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `verify` | Verify a single chain segment (integrity + signatures + anchor coverage). |
+| `bundle:export` | Export one or more chain segments into a portable `.attest.zip` bundle. |
+| `bundle:verify` | Verify every chain segment inside an exported bundle. |
+| `anchor` | Submit a chain range to an OpenTimestamps calendar and record the receipt. |
+| `upgrade` | Upgrade pending OTS receipts that now have a Bitcoin block-header attestation. |
+
+### Exit codes
+
+| Code | Outcome | Notes |
+|------|---------|-------|
+| 0 | VERIFIED, or non-verification command success | `INTEGRITY_VERIFIED_UNTRUSTED` with `--allow-untrusted` also exits 0 |
+| 1 | CLI / configuration / runtime error before a `VerificationOutcome` | Bad options, missing files, invalid arguments |
+| 2 | `INTEGRITY_VERIFIED_UNTRUSTED` | `--allow-untrusted` downgrades to 0 |
+| 3 | `ANCHOR_BELOW_MIN` | Anchor exists but is below `--min-anchor` threshold |
+| 4 | `INVALID_CHAIN` / `INVALID_SIGNATURE` / `INVALID_ANCHOR` | Also: bundle export failure, calendar unavailable |
+| 5 | `PROVIDER_DISAGREEMENT` | `--allow-provider-disagreement` downgrades to the strongest passing outcome |
+
+### Examples
+
+```bash
+# Verify chain "tenant:5" sequences 1–1000 against a trusted Ed25519 key
+vendor/bin/attest verify \
+  --chain tenant:5 \
+  --from 1 --to 1000 \
+  --trusted-key /etc/attest/keys/station-prod-2026-01.pub \
+  --min-anchor bitcoin_verified \
+  --json
+
+# Export two chains into a portable bundle
+vendor/bin/attest bundle:export \
+  --chain tenant:5 --from 1 --to 1000 \
+  --chain tenant:7 --from 1 --to 500 \
+  --out /tmp/export-$(date +%Y%m%d).attest.zip
+
+# Verify all chains in a bundle
+vendor/bin/attest bundle:verify \
+  --bundle /tmp/export-20260605.attest.zip \
+  --trusted-key /etc/attest/keys/station-prod-2026-01.pub \
+  --min-anchor remote_header_confirmed \
+  --json
+
+# Submit chain range to OpenTimestamps
+vendor/bin/attest anchor \
+  --chain tenant:5 --from 1 --to 1000 \
+  --calendar https://alice.btc.calendar.opentimestamps.org \
+  --json
+
+# Upgrade pending receipts to Bitcoin block-header attestations
+vendor/bin/attest upgrade \
+  --chain tenant:5 \
+  --rpc-url http://127.0.0.1:8332 \
+  --rpc-cookie /var/lib/bitcoin/.bitcoin/.cookie \
+  --json
+```
+
+### JSON output schema
+
+All commands emit a stable JSON envelope on stdout when `--json` is passed. The four schema
+identifiers are pinned within the v0.4.x line; future additions will be additive (no removals
+or renames within the same schema identifier):
+
+- `attest.cli.result.v1` — emitted by `verify` and `bundle:verify`
+- `attest.cli.export.v1` — emitted by `bundle:export`
+- `attest.cli.anchor.v1` — emitted by `anchor`
+- `attest.cli.upgrade.v1` — emitted by `upgrade`
+
+### Bundles
+
+Bundles are ZIP containers (extension `.attest.zip`) with the following layout:
+
+```
+manifest.json
+chains/{hash}.jsonl
+proof_envelopes/{hash}.jsonl
+receipts/{anchor_id}.ots        (optional)
+keys/{fingerprint}.pub          (optional)
+```
+
+Members are stored uncompressed for byte-accounting symmetry; the reader enforces per-member
+size caps, a total size cap, and a compression-ratio guard against bundles produced by other
+writers.
+
+**Trust model:** keys claimed inside the bundle are NOT trusted by themselves. Operators must
+supply trusted public keys via `--trusted-key <path>` or `--trusted-key-file <path>` at
+verification time.
+
 ## Documentation
 
 Full API reference: coming with v1.0.

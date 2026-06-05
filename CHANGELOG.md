@@ -2,6 +2,32 @@
 
 ## [Unreleased]
 
+## [0.4.0-alpha] — 2026-06-05
+
+### Added
+- **Bundle format `fissible.attest.bundle/v1`** — portable ZIP container with `manifest.json`, `chains/{hash}.jsonl`, `proof_envelopes/{hash}.jsonl`, optional `receipts/{anchor_id}.ots`, optional `keys/{fingerprint}.pub`. Members stored uncompressed; reader enforces per-member + total size + compression-ratio guards.
+- `Fissible\Attest\Bundle\{BundleConstants, BundleEntryPath, BundleManifest, ChainSegmentMeta, AnchorMeta, ClaimedKeyMeta, BundleExporter, BundleWriter, BundleReader, BundleStore}` plus typed exceptions (`InvalidBundle`, `InvalidBundleManifest`, `BundleExportException`).
+- `Fissible\Attest\Chain\PathSafety` helper for CLI write-path validation.
+- **`attest` CLI** (`bin/attest`) with five commands: `verify`, `bundle:export`, `bundle:verify`, `anchor`, `upgrade`. Spec §13 exit-code mapping (0/1/2/3/4/5). Stable JSON output schemas: `attest.cli.result.v1`, `attest.cli.export.v1`, `attest.cli.anchor.v1`, `attest.cli.upgrade.v1`.
+- `Fissible\Attest\Verification\StaticVerifier::verifyChain()` — spec §6 facade.
+- **Verifier**: new `detachedAnchorEnvelopes` constructor parameter so external callers (notably `BundleVerifyCommand`) can feed proof envelopes that aren't in the chain segment. Detached envelopes pass through `DetachedAnchorVerifier` classification.
+
+### Changed
+- `VerificationResult::$stats` renamed to `$chainStats` (spec §11).
+- `PathMapper` now rejects forward and back slashes in `chain_id` (spec §7.2).
+
+### Fixed (from Chunk 2.5)
+- **Binary payload end-to-end through JCS**: `PayloadValidator::ensure()` returns the canonical payload form (`Binary` → `{"_attest_binary": "<base64>"}` array stand-in); `EvidenceChain::record()` stores that canonical form. Previously `Binary::ofRaw(...)` would fail at signing with `JCS: unsupported type Fissible\Attest\Envelope\Binary`.
+- **Full signed-envelope 64KB cap (spec §5.3)**: `SignedEnvelope::sign()` and `EnvelopeCodec::decodeSigned()` enforce `MAX_SIGNED_ENVELOPE_BYTES = 65536` on the total signed canonical envelope. Payload-side cap lowered to 60KB to leave envelope-frame headroom (derived from envelope cap, not a magic literal).
+- **Detached anchor signature verification**: `Verifier` now runs every anchor envelope through `DetachedAnchorVerifier` before `AnchorSetResolver`. INVALID signatures drop the group with a `DETACHED_ANCHOR_INVALID_SIGNATURE` warning; valid-but-untrusted signatures cannot satisfy `--min-anchor` under `requireTrustedKey=true` (`DETACHED_ANCHOR_UNTRUSTED` warning). New: `DetachedAnchorClassification` enum, `DetachedAnchorVerifier` class, `ClassifiedDetachedAnchor` value object.
+
+### Dependencies
+- `symfony/console: ^6.4 || ^7.0` added to `require` for the CLI.
+
+### Notes
+- v0.x APIs, bundle format, and CLI JSON schemas remain alpha. Field meanings are pinned within v0.4.x; future additions will be additive.
+- Bundles store members uncompressed for byte-accounting symmetry; the reader still enforces a compression-ratio guard against bundles produced by other writers.
+
 ## [0.2.0-alpha] — 2026-06-04
 
 ### Added
