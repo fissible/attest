@@ -23,7 +23,6 @@ final class Verifier
 
     /**
      * @var list<SignedEnvelope>
-     * @phpstan-ignore property.onlyWritten (Task 3.6 will wire this into anchorEnvelopesFor())
      */
     private array $explicitDetachedEnvelopes;
 
@@ -827,6 +826,16 @@ final class Verifier
             if (str_starts_with($signed->envelope->type, 'attest.anchor.')) {
                 $postRange[] = $signed;
             }
+        }
+        foreach ($this->explicitDetachedEnvelopes as $signed) {
+            if (! str_starts_with($signed->envelope->type, 'attest.anchor.')) {
+                continue;
+            }
+            // Only consider explicit envelopes that target the chain being verified.
+            if ($signed->envelope->chain !== $chainId) {
+                continue;
+            }
+            $postRange[] = $signed;
         }
         foreach ($this->detachedAnchorVerifier->classify($postRange) as $c) {
             $classified[] = $c;
