@@ -19,6 +19,8 @@ final class Verifier
     /** @var array<string, AnchorDriver> */
     private array $anchorDrivers = [];
 
+    private readonly DetachedAnchorVerifier $detachedAnchorVerifier;
+
     /**
      * @param iterable<AnchorDriver> $anchorDrivers
      */
@@ -32,6 +34,7 @@ final class Verifier
         foreach ($anchorDrivers as $driver) {
             $this->anchorDrivers[$driver->name()] = $driver;
         }
+        $this->detachedAnchorVerifier = new DetachedAnchorVerifier($signatures);
     }
 
     public function verifyChain(string $chainId, int $fromSeq = 1, ?int $toSeq = null): VerificationResult
@@ -384,7 +387,16 @@ final class Verifier
             rootHex: MerkleTree::rootHex($canonicalBytes),
         );
 
-        $resolved = (new AnchorSetResolver())->resolve($this->anchorEnvelopesFor($chainId, $toSeq, $rangeEnvelopes));
+        $classifiedAnchors = $this->anchorEnvelopesFor($chainId, $toSeq, $rangeEnvelopes, $signatureResults);
+        $rawEnvelopes = array_map(
+            static fn (ClassifiedDetachedAnchor $c): SignedEnvelope => $c->envelope,
+            $classifiedAnchors,
+        );
+        $resolved = $this->filterByClassification(
+            $classifiedAnchors,
+            (new AnchorSetResolver())->resolve($rawEnvelopes),
+            $warnings,
+        );
         $expectedAnchorIds = [];
         foreach (array_keys($this->anchorDrivers) as $driverName) {
             $expectedAnchorIds[] = AnchorId::derive($target, $driverName);
@@ -777,22 +789,106 @@ final class Verifier
 
     /**
      * @param list<SignedEnvelope> $rangeEnvelopes
-     * @return list<SignedEnvelope>
+     * @param list<SignatureVerificationResult> $rangeSignatureResults parallel to $rangeEnvelopes
+     * @return list<ClassifiedDetachedAnchor>
      */
-    private function anchorEnvelopesFor(string $chainId, int $toSeq, array $rangeEnvelopes): array
-    {
-        $anchors = array_values(array_filter(
-            $rangeEnvelopes,
-            static fn (SignedEnvelope $signed): bool => str_starts_with($signed->envelope->type, 'attest.anchor.'),
-        ));
+    private function anchorEnvelopesFor(
+        string $chainId,
+        int $toSeq,
+        array $rangeEnvelopes,
+        array $rangeSignatureResults,
+    ): array {
+        $classified = [];
 
-        foreach ($this->store->readRange($chainId, $toSeq + 1) as $signed) {
-            if (str_starts_with($signed->envelope->type, 'attest.anchor.')) {
-                $anchors[] = $signed;
+        // In-range anchor envelopes: reuse the signature result from the main loop
+        foreach ($rangeEnvelopes as $idx => $signed) {
+            if (! str_starts_with($signed->envelope->type, 'attest.anchor.')) {
+                continue;
             }
+            $result = $rangeSignatureResults[$idx];
+            $classification = $this->detachedAnchorVerifier->classifyResult($result);
+            $classified[] = new ClassifiedDetachedAnchor($signed, $classification, $result);
         }
 
-        return $anchors;
+        // Post-range anchor envelopes: classify via the detached verifier
+        $postRange = [];
+        foreach ($this->store->readRange($chainId, $toSeq + 1) as $signed) {
+            if (str_starts_with($signed->envelope->type, 'attest.anchor.')) {
+                $postRange[] = $signed;
+            }
+        }
+        foreach ($this->detachedAnchorVerifier->classify($postRange) as $c) {
+            $classified[] = $c;
+        }
+
+        return $classified;
+    }
+
+    /**
+     * Filter resolved anchor groups by the classification of their constituent envelopes.
+     * Groups containing any INVALID or UNSUPPORTED_ALG envelope are dropped with a warning.
+     * Groups where every envelope is UNTRUSTED_VALID are dropped when requireTrustedKey=true.
+     *
+     * @param list<ClassifiedDetachedAnchor> $classifiedEnvelopes
+     * @param list<ResolvedAnchor> $resolved
+     * @param list<Warning> $warnings (mutated)
+     * @return list<ResolvedAnchor>
+     */
+    private function filterByClassification(
+        array $classifiedEnvelopes,
+        array $resolved,
+        array &$warnings,
+    ): array {
+        $classByEnvelopeId = [];
+        foreach ($classifiedEnvelopes as $c) {
+            $classByEnvelopeId[$c->envelope->envelope->id] = $c->classification;
+        }
+
+        $filtered = [];
+        foreach ($resolved as $group) {
+            $classifications = [];
+            foreach ($group->envelopeIds as $envId) {
+                $classifications[] = $classByEnvelopeId[$envId] ?? DetachedAnchorClassification::INVALID;
+            }
+
+            $hasInvalid = false;
+            foreach ($classifications as $c) {
+                if ($c === DetachedAnchorClassification::INVALID
+                    || $c === DetachedAnchorClassification::UNSUPPORTED_ALG
+                ) {
+                    $hasInvalid = true;
+                    break;
+                }
+            }
+            if ($hasInvalid) {
+                $warnings[] = new Warning(
+                    Warning::DETACHED_ANCHOR_INVALID_SIGNATURE,
+                    'Anchor group dropped because at least one envelope failed signature verification.',
+                    ['anchor_id' => $group->anchorId],
+                );
+                continue;
+            }
+
+            $allUntrusted = true;
+            foreach ($classifications as $c) {
+                if ($c !== DetachedAnchorClassification::UNTRUSTED_VALID) {
+                    $allUntrusted = false;
+                    break;
+                }
+            }
+            if ($allUntrusted && $this->policy->requireTrustedKey) {
+                $warnings[] = new Warning(
+                    Warning::DETACHED_ANCHOR_UNTRUSTED,
+                    'Anchor group cannot satisfy minAnchorOutcome because no envelope matched a trusted key.',
+                    ['anchor_id' => $group->anchorId],
+                );
+                continue;
+            }
+
+            $filtered[] = $group;
+        }
+
+        return $filtered;
     }
 
     /**
