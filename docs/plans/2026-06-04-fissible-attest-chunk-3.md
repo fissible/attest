@@ -22,69 +22,90 @@ Chunk 3 should make these workflows concrete:
 
 These decisions are pinned for the v1 bundle/CLI expansion:
 
-- Bundle format: ZIP container with a JSON manifest and uncompressed raw byte members.
-- Bundle trust model: the bundle has no integrity layer of its own. Trust comes from signed envelopes, trusted keys, anchor receipts, and live header providers where policy requires them.
-- Verification result storage: no "last verification result" is stored in `attest.bundle.v1`. Verification output is produced by commands and may be saved by operators, but it is not trusted input to `Verifier`.
-- Anchor export scope: default export includes anchor envelopes whose declared target overlaps the requested range. `--include-all-anchors` means all anchor envelopes touching the requested range, including overlapping or ambiguous anchors; it does not mean every anchor envelope on the chain.
+- Bundle format: align with design spec Section 12: ZIP container with `manifest.json`, `chains/{sha256(chain_id)}.jsonl`, `proof_envelopes/{sha256(chain_id)}.jsonl`, optional `receipts/{anchor_id}.ots`, and optional `keys/{fingerprint}.pub`.
+- Bundle trust model: the bundle has no integrity layer of its own. Trust comes from signed envelopes, externally trusted keys, anchor receipts, and live header providers where policy requires them. Bundled keys are claimed keys only.
+- Verification result storage: no "last verification result" is stored in `fissible.attest.bundle/v1`. Verification output is produced by commands and may be saved by operators, but it is not trusted input to `Verifier`.
+- Anchor export scope: v1 exports proof envelopes whose payload `[from_seq, to_seq]` exactly matches the requested chain segment. Wider overlapping anchors are not eligible because subset inclusion proofs are deferred from v1.
+- CLI exit codes: align with design spec Section 13's outcome-specific mapping unless the spec is deliberately amended first.
+
+## Pre-Expansion Blockers
+
+Chunk 3 should not move from outline to executable implementation until these Chunk 1/2 alignment issues are either fixed or explicitly sequenced ahead of bundle verification:
+
+- Binary payloads are accepted by `PayloadValidator` but not encodable by `JcsEncoder`; `Binary::ofRaw(...)` fails during signing. Fix the canonicalization path before v1.0.
+- The 64KB cap is currently measured over canonical payload bytes, while the spec requires total signed canonical envelope size to be capped. Clamp full envelope size at signing or append validation.
+- Detached/post-range anchor envelopes are collected by `Verifier` without signature verification. That is load-bearing for bundle `proof_envelopes/`, whose first validation step must be Ed25519 signature verification and external-trust classification.
 
 ## Proposed Task Groups
 
 ### 3.1 Bundle Format
 
-Define a versioned `attest.bundle.v1` ZIP format.
+Define the versioned bundle format from design spec Section 12.
 
 Required members:
 
 - `manifest.json`
-- `chain/<chain-id-safe>/records.jsonl`
-- `anchors/<chain-id-safe>/anchors.jsonl`
+- `chains/{sha256(chain_id)}.jsonl`
+- `proof_envelopes/{sha256(chain_id)}.jsonl`
+
+Optional members:
+
+- `receipts/{anchor_id}.ots`
+- `keys/{fingerprint}.pub`
 
 Manifest fields:
 
-- `format_version`: fixed string, `attest.bundle.v1`.
-- `generated_at`: RFC 3339 UTC timestamp.
-- `generator`: object with package name and version.
-- `chain`: object with chain ID, requested `from_seq`, requested `to_seq`, and record count.
-- `members`: object mapping member path to byte length and SHA-256 digest.
-- `trusted_keys`: optional informational key metadata or key references, never private key material.
-- `policy`: optional informational policy summary used when the bundle was exported.
+- `format`: fixed string, `fissible.attest.bundle/v1`.
+- `created_at`: RFC 3339 UTC timestamp.
+- `issuer_hint`: optional informational string.
+- `note`: optional informational string.
+- `chains`: list of exported chain segments with chain ID, member path, `from_seq`, `to_seq`, envelope count, and head hash.
+- `anchors`: list of detached proof envelopes with anchor ID, chain ID, exact range, Merkle algorithm, root, driver, state, proof envelope ID, and optional receipt cache path.
+- `claimed_keys`: optional key metadata and member paths. These are never trusted by bundle presence alone.
 
 Rules:
 
-- ZIP entries must be stored uncompressed. Reject compressed entries to avoid zip-bomb behavior and keep raw byte accounting simple.
-- Reject duplicate member names, absolute paths, `..` path segments, symlink entries, and unknown required-member replacements.
+- Reject duplicate member names, absolute paths, `..` path segments, symlink entries, control chars, and unknown top-level prefixes.
+- Reject entries outside `manifest.json`, `chains/`, `proof_envelopes/`, `keys/`, and `receipts/`.
 - Enforce per-member and total bundle size limits before parsing JSON or OpenTimestamps receipts.
-- Member SHA-256 values are corruption checks only. They are not an authentication or tamper-resistance layer.
-- Receipt bytes remain in canonical anchor envelopes as `base64:` fields; raw chain and anchor envelope bytes live in JSONL members.
+- Enforce a compression-ratio guard against zip bombs. The writer may store JSONL entries uncompressed for simpler byte accounting, but the format is still ZIP and the reader's safety checks carry the security boundary.
+- Manifest hashes and counts are corruption checks only. They are not an authentication or tamper-resistance layer.
+- Receipt bytes remain in signed canonical anchor envelopes as `base64:` fields in `proof_envelopes/`; `receipts/` is only a derived cache for external OTS tooling.
+- If a `receipts/{anchor_id}.ots` file is present but does not byte-match the proof envelope's `receipt_bytes`, warn and ignore the cache file.
 
 Deferred from v1:
 
 - Signed bundle manifests.
 - Persisted "last verification result".
 - Full-chain archive bundles.
-- Compression.
+- Subset proofs for ranges covered only by wider anchors.
 
 ### 3.2 Bundle Codec And Validator
 
 Add bundle read/write APIs:
 
-- `BundleExporter` to collect chain bytes, anchor envelopes, and metadata.
+- `BundleExporter` to collect chain bytes, detached proof envelopes, receipt-cache files, claimed keys, and metadata.
 - `BundleReader` to validate structure and size limits.
 - `BundleManifest` value object for manifest fields.
 - Typed exceptions for unsupported version, malformed ZIP, missing member, duplicate member, oversize member, and manifest/member digest mismatch.
 
 Validation rules:
 
-- Accept `attest.bundle.v1` only.
+- Accept `fissible.attest.bundle/v1` only.
 - Decode raw envelope JSONL members only after member size and path checks pass.
-- Compare manifest SHA-256 values with actual member bytes.
+- Compare advisory manifest counts, paths, hashes, and ranges with actual member bytes.
 - Validate that chain record bytes decode to signed envelopes for the declared chain and requested range before passing them to `Verifier`.
+- Validate each proof envelope signature and classify it against externally trusted keys before using its receipt for anchor verification.
+- Validate that proof envelope `target_chain`, `[from_seq, to_seq]`, `merkle_algorithm`, `root`, and `anchor_id` bind exactly to the exported segment.
 
 Acceptance coverage:
 
 - Bundle round-trip is byte-stable for raw envelope members.
 - Missing required members fail with typed errors.
 - Over-large bundles and receipt payloads are rejected before expensive parsing.
+- Invalid proof-envelope signatures fail before receipt verification.
+- Valid but externally untrusted proof-envelope signatures produce `INTEGRITY_VERIFIED_UNTRUSTED` unless policy allows untrusted verification.
+- Wider overlapping anchors are rejected as ineligible for v1 bundle proof.
 - Bundle verification produces the same result as live chain verification for equivalent inputs.
 - Manifest hashes detect accidental corruption but are documented as non-security checks.
 
@@ -92,16 +113,21 @@ Acceptance coverage:
 
 Provide a verifier-compatible store adapter over bundle contents:
 
-- Implements `RawChainStore`.
+- Implements `ChainStore` read methods plus `RawChainStore`; append operations are unsupported.
 - Yields raw signed canonical bytes exactly as stored in the bundle.
-- Exposes anchor envelopes included in the bundle.
+- Exposes detached proof envelopes included in `proof_envelopes/`.
 - Does not allow append.
 
 Trust model:
 
 - The adapter does not make the bundle trustworthy.
-- `Verifier` still proves chain integrity through canonical bytes, sequence links, signatures, trusted keys, anchor receipts, and header providers.
-- If the bundle omits needed anchors or trusted keys, verification fails or reports the same warnings a live verification would.
+- `Verifier` still proves chain integrity through canonical bytes, sequence links, signatures, externally trusted keys, anchor receipts, and header providers.
+- Claimed keys in `keys/` are convenience inputs only. Without external trust input, verification remains `INTEGRITY_VERIFIED_UNTRUSTED`.
+- If the bundle omits needed proof envelopes or trusted keys, verification fails or reports the same warnings a live verification would.
+
+Implementation requirement:
+
+- Do not let detached proof envelopes bypass signature verification. Either extend `Verifier` with an explicit detached proof envelope input path or make the bundle adapter expose them through a verifier path that verifies signatures before `AnchorSetResolver` uses them.
 
 This keeps the existing `Verifier` state machine as the authority instead of creating a parallel bundle verifier.
 
@@ -130,11 +156,12 @@ CLI wiring rules:
 
 Exit codes:
 
-- `0`: verified, or command completed successfully with no required work.
-- `1`: integrity or anchor failure (`INVALID_CHAIN`, `INVALID_SIGNATURE`, `INVALID_ANCHOR`).
-- `2`: policy failure (`ANCHOR_BELOW_MIN`, `PROVIDER_DISAGREEMENT`, `INTEGRITY_VERIFIED_UNTRUSTED`).
-- `3`: invalid CLI arguments or configuration.
-- `4`: provider/network unavailable while required by policy.
+- `0`: `VERIFIED`, or non-verification command completed successfully with no required work.
+- `1`: CLI/configuration/runtime error before a `VerificationOutcome` is produced.
+- `2`: `INTEGRITY_VERIFIED_UNTRUSTED` unless `--allow-untrusted` downgrades it to `0`.
+- `3`: `ANCHOR_BELOW_MIN`.
+- `4`: `INVALID_CHAIN`, `INVALID_SIGNATURE`, or `INVALID_ANCHOR`.
+- `5`: `PROVIDER_DISAGREEMENT` unless `--allow-provider-disagreement` downgrades to the strongest passing outcome.
 
 ### 3.5 Verify Command
 
@@ -190,11 +217,11 @@ Export a live chain range to a bundle:
 
 - `attest bundle export --storage-root <dir> --chain <id> --from <seq> --to <seq> --out <path>`
 - Reads raw canonical bytes where available.
-- Walks forward past `--to` through the end of the chain and collects anchor envelopes whose declared target overlaps `[from, to]`.
-- By default, refuses ambiguous overlapping anchor coverage and reports the overlapping anchor IDs.
-- With `--include-all-anchors`, includes every anchor envelope touching the requested range, including ambiguous overlaps.
+- Walks forward past `--to` through the end of the chain and collects proof envelopes whose declared target exactly matches `[from, to]`.
+- Refuses to export a proof bundle when only wider overlapping anchors exist; callers must export the full anchored range until subset proofs land.
+- Does not implement `--include-all-anchors` as an overlap mode in v1. Ambiguous/overlapping coverage remains a live-chain verifier warning, not a bundle export feature.
 - Emits a warning for pending anchors recommending `attest upgrade` before export when stronger receipts may be available.
-- Allows explicit trusted-key metadata inclusion.
+- Allows explicit claimed-key metadata inclusion.
 - Writes to a temporary file in the destination directory and then renames atomically.
 
 The exporter should not claim the bundle is tamper-proof. It exports evidence that can be independently verified.
@@ -207,6 +234,8 @@ Verify a bundle using the same policy flags as live verification:
 - Header providers are still live dependencies when `--min-anchor` requires active-chain confirmation.
 - `attest bundle verify --min-anchor bitcoin_verified --bitcoin-core-rpc ...` reads chain bytes and receipts from the bundle, then calls the configured Bitcoin Core node for header verification.
 - Header providers are optional only for thresholds that do not require them.
+- Detached proof envelopes are signature-verified and classified against trusted keys before their receipt bytes are used.
+- Claimed keys from the bundle are not sufficient trust input by themselves.
 - Output includes warnings for no providers, provider unknowns, ambiguous coverage, and untrusted signatures.
 
 Bundle verification proves the bundle contents against trusted keys and anchors. It does not prove that the bundle is a complete archive of the original chain outside the requested range.
