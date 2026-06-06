@@ -22,6 +22,20 @@ use Symfony\Component\Console\Output\OutputInterface;
 #[AsCommand(name: 'upgrade', description: 'Upgrade pending anchor receipts.')]
 final class UpgradeCommand extends Command
 {
+    /** @var (callable(): OpenTimestampsCalendarClient)|null */
+    private $calendarClientFactory;
+
+    /**
+     * @param (callable(): OpenTimestampsCalendarClient)|null $calendarClientFactory
+     *   Test seam for injecting a mock PSR-18-backed calendar client. When
+     *   null, the command falls back to OpenTimestampsCalendarClient::withGuzzle().
+     */
+    public function __construct(?callable $calendarClientFactory = null)
+    {
+        parent::__construct();
+        $this->calendarClientFactory = $calendarClientFactory;
+    }
+
     protected function configure(): void
     {
         $this
@@ -113,7 +127,9 @@ final class UpgradeCommand extends Command
 
         // ── Build stores + driver ────────────────────────────────────────────
         $store  = new FileChainStore($storageRoot);
-        $client = OpenTimestampsCalendarClient::withGuzzle();
+        $client = $this->calendarClientFactory !== null
+            ? ($this->calendarClientFactory)()
+            : OpenTimestampsCalendarClient::withGuzzle();
         /** @var list<string> $calendarUrls */
         if ($calendarUrls !== []) {
             $driver = new OpenTimestampsDriver($client, $calendarUrls);

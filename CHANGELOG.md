@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [0.4.1-alpha] — 2026-06-05
+
+### Added
+- `release.sh` and `.cliff.toml` copied from `fissible/.github`; `.github/workflows/release.yml` wires the reusable release workflow so tag pushes auto-create a GitHub Release. Note: the canonical `release.sh` assumes pure semver and currently cannot bump `0.x.y-alpha` directly — manual tag procedure remains the path for `-alpha` releases until either the script is patched upstream or VERSION drops the suffix.
+- `AnchorCommand` and `UpgradeCommand` accept an optional `(callable(): OpenTimestampsCalendarClient)|null` constructor parameter as a PSR-18 client injection seam. The default null falls back to `OpenTimestampsCalendarClient::withGuzzle()`. This unblocks mockable CLI tests for OTS calendar interactions in the next chunk.
+
+### Changed
+- `BundleExporter` now falls back to the key's hex fingerprint (rather than the literal string `'unnamed'`) when `withClaimedKey()` is called without an explicit `key_id`. The manifest's `key_id` is informational only — claimed keys are never auto-trusted by the verifier — but the fingerprint is the canonical identifier when no human-readable name was provided.
+
 ## [0.4.0-alpha] — 2026-06-05
 
 ### Added

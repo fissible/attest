@@ -21,6 +21,20 @@ use Symfony\Component\Console\Output\OutputInterface;
 #[AsCommand(name: 'anchor', description: 'Anchor a chain segment to an external timestamp service.')]
 final class AnchorCommand extends Command
 {
+    /** @var (callable(): OpenTimestampsCalendarClient)|null */
+    private $calendarClientFactory;
+
+    /**
+     * @param (callable(): OpenTimestampsCalendarClient)|null $calendarClientFactory
+     *   Test seam for injecting a mock PSR-18-backed calendar client. When
+     *   null, the command falls back to OpenTimestampsCalendarClient::withGuzzle().
+     */
+    public function __construct(?callable $calendarClientFactory = null)
+    {
+        parent::__construct();
+        $this->calendarClientFactory = $calendarClientFactory;
+    }
+
     protected function configure(): void
     {
         $this
@@ -134,7 +148,9 @@ final class AnchorCommand extends Command
                 $output->writeln('error: --min-calendars must be >= 1');
                 return 1;
             }
-            $client = OpenTimestampsCalendarClient::withGuzzle();
+            $client = $this->calendarClientFactory !== null
+                ? ($this->calendarClientFactory)()
+                : OpenTimestampsCalendarClient::withGuzzle();
             if ($calendarUrls !== []) {
                 $driver = new OpenTimestampsDriver($client, $calendarUrls, $minCalendars);
             } else {

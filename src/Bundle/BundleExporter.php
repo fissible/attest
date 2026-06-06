@@ -103,7 +103,7 @@ final class BundleExporter
             $entryPath = BundleConstants::KEYS_PREFIX . $fingerprint . '.pub';
             $keyEntries[$entryPath] = Base64::encode($ck['pubkey']);
             $claimedKeyMetas[] = new ClaimedKeyMeta(
-                keyId: $ck['keyId'] !== null && $ck['keyId'] !== '' ? $ck['keyId'] : 'unnamed',
+                keyId: $ck['keyId'] !== null && $ck['keyId'] !== '' ? $ck['keyId'] : $fingerprint,
                 sigAlg: $ck['sigAlg'],
                 fingerprint: 'sha256:' . $fingerprint,
                 file: $entryPath,
