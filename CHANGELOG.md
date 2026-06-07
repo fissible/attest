@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [0.4.2-alpha] — 2026-06-07
+
+### Fixed
+- `verify` and `bundle:verify` now register OpenTimestamps verification drivers when the optional Guzzle PSR-18 stack is installed, allowing upgraded OTS receipts to satisfy `--min-anchor` policies instead of being limited to local-only receipt verification.
+- `upgrade --anchor-id` is idempotent for anchors that are already past `pending`; it returns exit 0 with an `unchanged` entry instead of reporting that no pending anchor was found.
+- `upgrade` now passes the configured calendar URLs as the OpenTimestamps upgrade allowlist, keeping upgrade requests constrained to the operator-selected calendars.
+
+### Tests
+- Activated CLI coverage for OpenTimestamps anchoring, upgrade, verification, bundle export, bundle verification, calendar-unavailable handling, and provider-disagreement exits through injectable PSR-18 calendar and header-provider seams.
+
 ## [0.4.1-alpha] — 2026-06-05
 
 ### Added
