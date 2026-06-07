@@ -3,13 +3,29 @@ declare(strict_types=1);
 
 namespace Fissible\Attest\Tests\Cli\Command;
 
+use Fissible\Attest\Anchor\AnchorEnvelope;
+use Fissible\Attest\Anchor\AnchorReceipt;
+use Fissible\Attest\Anchor\AnchorTarget;
 use Fissible\Attest\Anchor\AnchorService;
 use Fissible\Attest\Anchor\FileAnchorClaimStore;
 use Fissible\Attest\Anchor\NullDriver;
+use Fissible\Attest\Anchor\OpenTimestamps\OpenTimestampsAttestation;
+use Fissible\Attest\Anchor\OpenTimestamps\OpenTimestampsCodec;
+use Fissible\Attest\Anchor\OpenTimestamps\OpenTimestampsProof;
+use Fissible\Attest\Anchor\OpenTimestamps\OpenTimestampsTimestamp;
+use Fissible\Attest\Anchor\OpenTimestampsDriver;
+use Fissible\Attest\Anchor\ProofState;
 use Fissible\Attest\Chain\EvidenceChain;
 use Fissible\Attest\Chain\FileChainStore;
 use Fissible\Attest\Chain\PathMapper;
 use Fissible\Attest\Cli\Command\VerifyCommand;
+use Fissible\Attest\Envelope\SignedEnvelope;
+use Fissible\Attest\Headers\ActiveChainHeader;
+use Fissible\Attest\Headers\BlockHeaderProvider;
+use Fissible\Attest\Headers\HeaderLookupResult;
+use Fissible\Attest\Headers\HeaderProviderSet;
+use Fissible\Attest\Headers\TrustLevel;
+use Fissible\Attest\Merkle\MerkleTree;
 use Fissible\Attest\Signing\KeyPair;
 use Fissible\Attest\Signing\SodiumSigner;
 use PHPUnit\Framework\TestCase;
@@ -31,10 +47,13 @@ final class VerifyCommandTest extends TestCase
         exec('rm -rf ' . escapeshellarg($this->tmpDir));
     }
 
-    private function makeTester(): CommandTester
+    /**
+     * @param (callable(?string, ?string, ?string): HeaderProviderSet)|null $headerProviderFactory
+     */
+    private function makeTester(?callable $headerProviderFactory = null): CommandTester
     {
         $application = new Application();
-        $application->add(new VerifyCommand());
+        $application->add(new VerifyCommand($headerProviderFactory));
         $application->setAutoExit(false);
         $command = $application->find('verify');
         return new CommandTester($command);
@@ -51,6 +70,48 @@ final class VerifyCommandTest extends TestCase
         for ($i = 1; $i <= $count; $i++) {
             $chain->record('app.event', ['n' => $i]);
         }
+    }
+
+    private function buildChainWithUpgradedOtsAnchor(string $chainId, KeyPair $kp, int $count = 3): AnchorReceipt
+    {
+        $store = new FileChainStore($this->tmpDir);
+        $signer = new SodiumSigner($kp, keyId: 'k1');
+        $chain = EvidenceChain::open($store, $chainId, $signer);
+        $records = [];
+        for ($i = 1; $i <= $count; $i++) {
+            $records[] = $chain->record('app.event', ['n' => $i]);
+        }
+
+        $target = new AnchorTarget(
+            chainId: $chainId,
+            fromSeq: 1,
+            toSeq: $count,
+            merkleAlgorithm: MerkleTree::ALGORITHM,
+            rootHex: MerkleTree::rootHex(array_map(
+                static fn (SignedEnvelope $signed): string => $signed->signedCanonicalBytes(),
+                $records,
+            )),
+        );
+        $receipt = $this->upgradedOtsReceipt($target);
+        $chain->record(AnchorEnvelope::UPGRADED_TYPE, AnchorEnvelope::upgradedPayload($receipt));
+
+        return $receipt;
+    }
+
+    private function upgradedOtsReceipt(AnchorTarget $target): AnchorReceipt
+    {
+        $rootBytes = hex2bin($target->rootHex);
+        self::assertIsString($rootBytes);
+        $timestamp = (new OpenTimestampsTimestamp($rootBytes))
+            ->withAttestation(OpenTimestampsAttestation::bitcoin(840000));
+
+        return new AnchorReceipt(
+            driverName: OpenTimestampsDriver::NAME,
+            target: $target,
+            state: ProofState::UPGRADED,
+            receiptBytes: OpenTimestampsCodec::encodeDetached(new OpenTimestampsProof($rootBytes, $timestamp)),
+            createdAtIso8601: '2026-06-06T00:00:00.000Z',
+        );
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -189,14 +250,36 @@ final class VerifyCommandTest extends TestCase
 
     public function test_provider_disagreement_exits_5(): void
     {
-        // TODO: Provider disagreement requires mocking header providers (Bitcoin Core / Esplora)
-        // that return conflicting confirmations. NullDriver alone produces LOCAL_ONLY and never
-        // reaches the header-provider code path. This scenario will be covered in
-        // BundleVerifyCommandTest (Task 3.10) where HTTP mocking is set up.
-        $this->markTestIncomplete(
-            'Provider disagreement (exit 5) requires conflicting header providers. ' .
-            'Will be covered in BundleVerifyCommandTest (Task 3.10) with mocked HTTP.'
+        $kp = KeyPair::generate();
+        $receipt = $this->buildChainWithUpgradedOtsAnchor('chain1', $kp, 3);
+
+        $headers = new HeaderProviderSet(
+            CliVotingHeaderProvider::pass(
+                'bitcoin-core',
+                TrustLevel::LOCAL,
+                $receipt->target->rootHex,
+                blockHash: str_repeat('1', 64),
+            ),
+            CliVotingHeaderProvider::pass(
+                'esplora',
+                TrustLevel::REMOTE,
+                $receipt->target->rootHex,
+                blockHash: str_repeat('2', 64),
+            ),
         );
+
+        $tester = $this->makeTester(
+            static fn (?string $bitcoinCoreRpc, ?string $bitcoinCoreCookie, ?string $esploraUrl): HeaderProviderSet => $headers,
+        );
+        $exitCode = $tester->execute([
+            '--storage-root' => $this->tmpDir,
+            '--chain' => 'chain1',
+            '--trusted-key' => ['k1=' . base64_encode($kp->publicKey)],
+            '--min-anchor' => 'remote_header_confirmed',
+        ]);
+
+        self::assertSame(5, $exitCode, 'Expected exit 5; output: ' . $tester->getDisplay());
+        self::assertStringContainsString('provider_disagreement', $tester->getDisplay());
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -249,5 +332,50 @@ final class VerifyCommandTest extends TestCase
         self::assertArrayHasKey('chain_stats', $payload);
         self::assertArrayHasKey('signature_summary', $payload);
         self::assertArrayHasKey('warnings', $payload);
+    }
+}
+
+final readonly class CliVotingHeaderProvider implements BlockHeaderProvider
+{
+    private function __construct(
+        private string $providerName,
+        private TrustLevel $trustLevel,
+        private string $merkleRoot,
+        private string $blockHash,
+    ) {
+    }
+
+    public static function pass(
+        string $name,
+        TrustLevel $trustLevel,
+        string $merkleRoot,
+        string $blockHash,
+    ): self {
+        return new self($name, $trustLevel, $merkleRoot, $blockHash);
+    }
+
+    public function name(): string
+    {
+        return $this->providerName;
+    }
+
+    public function trustLevel(): TrustLevel
+    {
+        return $this->trustLevel;
+    }
+
+    public function getActiveChainHeaderByHeight(int $height): HeaderLookupResult
+    {
+        return HeaderLookupResult::active(
+            $this->providerName,
+            $this->trustLevel,
+            new ActiveChainHeader(
+                blockHash: $this->blockHash,
+                height: $height,
+                confirmations: 7,
+                merkleRoot: $this->merkleRoot,
+                timeUnixSec: 1713571200,
+            ),
+        );
     }
 }

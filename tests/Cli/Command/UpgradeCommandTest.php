@@ -3,11 +3,29 @@ declare(strict_types=1);
 
 namespace Fissible\Attest\Tests\Cli\Command;
 
+use Fissible\Attest\Anchor\AnchorEnvelope;
+use Fissible\Attest\Anchor\AnchorReceipt;
+use Fissible\Attest\Anchor\AnchorTarget;
+use Fissible\Attest\Anchor\OpenTimestamps\OpenTimestampsAttestation;
+use Fissible\Attest\Anchor\OpenTimestamps\OpenTimestampsCalendarClient;
+use Fissible\Attest\Anchor\OpenTimestamps\OpenTimestampsCodec;
+use Fissible\Attest\Anchor\OpenTimestamps\OpenTimestampsProof;
+use Fissible\Attest\Anchor\OpenTimestamps\OpenTimestampsTimestamp;
+use Fissible\Attest\Anchor\OpenTimestampsDriver;
+use Fissible\Attest\Anchor\ProofState;
 use Fissible\Attest\Chain\EvidenceChain;
 use Fissible\Attest\Chain\FileChainStore;
 use Fissible\Attest\Cli\Command\UpgradeCommand;
+use Fissible\Attest\Envelope\SignedEnvelope;
+use Fissible\Attest\Merkle\MerkleTree;
 use Fissible\Attest\Signing\KeyPair;
 use Fissible\Attest\Signing\SodiumSigner;
+use GuzzleHttp\Client;
+use GuzzleHttp\Handler\MockHandler;
+use GuzzleHttp\HandlerStack;
+use GuzzleHttp\Middleware;
+use GuzzleHttp\Psr7\HttpFactory;
+use GuzzleHttp\Psr7\Response;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Tester\CommandTester;
@@ -37,10 +55,13 @@ final class UpgradeCommandTest extends TestCase
     // Helpers
     // ────────────────────────────────────────────────────────────────────────
 
-    private function makeTester(): CommandTester
+    /**
+     * @param (callable(): OpenTimestampsCalendarClient)|null $calendarClientFactory
+     */
+    private function makeTester(?callable $calendarClientFactory = null): CommandTester
     {
         $application = new Application();
-        $application->add(new UpgradeCommand());
+        $application->add(new UpgradeCommand($calendarClientFactory));
         $application->setAutoExit(false);
         $command = $application->find('upgrade');
         return new CommandTester($command);
@@ -74,6 +95,84 @@ final class UpgradeCommandTest extends TestCase
             '--signer-key-file' => $this->keyFile,
             '--signer-key-id'   => $this->keyId,
         ];
+    }
+
+    /**
+     * @param list<Response> $responses
+     * @param list<array{request: \Psr\Http\Message\RequestInterface, response?: \Psr\Http\Message\ResponseInterface, error?: mixed}> $transactions
+     */
+    private function calendarClient(array $responses, array &$transactions): OpenTimestampsCalendarClient
+    {
+        $mock = new MockHandler($responses);
+        $stack = HandlerStack::create($mock);
+        $stack->push(Middleware::history($transactions));
+        $http = new Client(['handler' => $stack]);
+        $factory = new HttpFactory();
+
+        return new OpenTimestampsCalendarClient($http, $factory, $factory);
+    }
+
+    private function targetFor(FileChainStore $store, string $chainId, int $fromSeq, int $toSeq): AnchorTarget
+    {
+        $rawBytes = iterator_to_array($store->readRawRange($chainId, $fromSeq, $toSeq), false);
+
+        return new AnchorTarget(
+            chainId: $chainId,
+            fromSeq: $fromSeq,
+            toSeq: $toSeq,
+            merkleAlgorithm: MerkleTree::ALGORITHM,
+            rootHex: MerkleTree::rootHex($rawBytes),
+        );
+    }
+
+    private function otsReceipt(
+        FileChainStore $store,
+        string $chainId,
+        int $fromSeq,
+        int $toSeq,
+        ProofState $state,
+    ): AnchorReceipt {
+        $target = $this->targetFor($store, $chainId, $fromSeq, $toSeq);
+        $rootBytes = hex2bin($target->rootHex);
+        self::assertIsString($rootBytes);
+
+        $timestamp = new OpenTimestampsTimestamp($rootBytes);
+        if ($state === ProofState::PENDING) {
+            $timestamp = $timestamp->withAttestation(OpenTimestampsAttestation::pending('https://calendar.example'));
+        } elseif ($state === ProofState::UPGRADED) {
+            $timestamp = $timestamp->withAttestation(OpenTimestampsAttestation::bitcoin(840000));
+        } else {
+            throw new \InvalidArgumentException('OTS fixture receipts must be pending or upgraded');
+        }
+
+        return new AnchorReceipt(
+            driverName: OpenTimestampsDriver::NAME,
+            target: $target,
+            state: $state,
+            receiptBytes: OpenTimestampsCodec::encodeDetached(new OpenTimestampsProof($rootBytes, $timestamp)),
+            createdAtIso8601: '2026-06-06T00:00:00.000Z',
+        );
+    }
+
+    private function appendOtsAnchorEnvelope(
+        FileChainStore $store,
+        string $chainId,
+        AnchorReceipt $receipt,
+    ): SignedEnvelope {
+        $chain = EvidenceChain::open($store, $chainId, $this->signerFromKeyFile());
+        if ($receipt->state === ProofState::UPGRADED) {
+            return $chain->record(AnchorEnvelope::UPGRADED_TYPE, AnchorEnvelope::upgradedPayload($receipt));
+        }
+
+        return $chain->record(AnchorEnvelope::SUBMITTED_TYPE, AnchorEnvelope::submittedPayload($receipt));
+    }
+
+    private function bitcoinTimestampBytes(): string
+    {
+        return OpenTimestampsCodec::encodeTimestampBytes(
+            (new OpenTimestampsTimestamp(str_repeat("\x00", 32)))
+                ->withAttestation(OpenTimestampsAttestation::bitcoin(840000)),
+        );
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -230,13 +329,33 @@ final class UpgradeCommandTest extends TestCase
 
     public function test_upgrade_idempotent_on_already_upgraded(): void
     {
-        $this->markTestIncomplete(
-            'Requires an OTS receipt that is already in UPGRADED state. '
-            . 'Creating such a receipt requires either a mock PSR-18 calendar client '
-            . 'or a fixture receipt. Neither is wired into CLI tests yet. '
-            . 'TODO: add a factory-closure seam to OpenTimestampsDriver (similar to '
-            . 'the blocker documented in AnchorCommandTest) to enable mock injection.'
-        );
+        $store = $this->buildChain('done', 2);
+        $receipt = $this->otsReceipt($store, 'done', 1, 2, ProofState::UPGRADED);
+        $anchorEnvelope = $this->appendOtsAnchorEnvelope($store, 'done', $receipt);
+        $transactions = [];
+
+        $tester = $this->makeTester(function () use (&$transactions): OpenTimestampsCalendarClient {
+            return $this->calendarClient([], $transactions);
+        });
+        $exitCode = $tester->execute([
+            ...$this->baseArgs('done'),
+            '--anchor-id' => $receipt->anchorId,
+            '--calendar-url' => ['https://calendar.example'],
+            '--json' => true,
+        ]);
+
+        $display = $tester->getDisplay();
+        self::assertSame(0, $exitCode, 'Expected idempotent exit 0; output: ' . $display);
+
+        $payload = json_decode($display, true);
+        self::assertIsArray($payload, 'Output must be valid JSON');
+        self::assertSame([], $payload['upgraded']);
+        self::assertSame([], $payload['failed']);
+        self::assertCount(1, $payload['unchanged']);
+        self::assertSame($receipt->anchorId, $payload['unchanged'][0]['anchor_id']);
+        self::assertSame($anchorEnvelope->envelope->id, $payload['unchanged'][0]['envelope_id']);
+        self::assertSame('upgraded', $payload['unchanged'][0]['state']);
+        self::assertSame([], $transactions);
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -245,13 +364,42 @@ final class UpgradeCommandTest extends TestCase
 
     public function test_calendar_unavailable_continues_to_next_anchor(): void
     {
-        $this->markTestIncomplete(
-            'Exercising CalendarUnavailable on upgrade() requires a mock calendar client '
-            . 'that throws CalendarUnavailable. The injection seam (factory closure on '
-            . 'OpenTimestampsDriver) is not yet wired. '
-            . 'TODO: add seam, then assert that failed[] grows by 1 per unavailable anchor '
-            . 'and the command continues processing the remaining candidates.'
-        );
+        $store = $this->buildChain('sweep', 4);
+        $first = $this->otsReceipt($store, 'sweep', 1, 2, ProofState::PENDING);
+        $second = $this->otsReceipt($store, 'sweep', 3, 4, ProofState::PENDING);
+        $firstEnvelope = $this->appendOtsAnchorEnvelope($store, 'sweep', $first);
+        $this->appendOtsAnchorEnvelope($store, 'sweep', $second);
+        $transactions = [];
+
+        $tester = $this->makeTester(function () use (&$transactions): OpenTimestampsCalendarClient {
+            return $this->calendarClient(
+                [
+                    new Response(503, [], 'calendar down'),
+                    new Response(200, ['Content-Type' => OpenTimestampsCalendarClient::CONTENT_TYPE], $this->bitcoinTimestampBytes()),
+                ],
+                $transactions,
+            );
+        });
+        $exitCode = $tester->execute([
+            ...$this->baseArgs('sweep'),
+            '--all-pending' => true,
+            '--calendar-url' => ['https://calendar.example'],
+            '--json' => true,
+        ]);
+
+        $display = $tester->getDisplay();
+        self::assertSame(0, $exitCode, 'Expected best-effort sweep exit 0; output: ' . $display);
+
+        $payload = json_decode($display, true);
+        self::assertIsArray($payload, 'Output must be valid JSON');
+        self::assertCount(1, $payload['upgraded']);
+        self::assertCount(1, $payload['unchanged']);
+        self::assertSame([], $payload['failed']);
+        self::assertSame($first->anchorId, $payload['unchanged'][0]['anchor_id']);
+        self::assertSame($firstEnvelope->envelope->id, $payload['unchanged'][0]['envelope_id']);
+        self::assertSame('pending', $payload['unchanged'][0]['state']);
+        self::assertSame($second->anchorId, $payload['upgraded'][0]['anchor_id']);
+        self::assertCount(2, $transactions);
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -260,14 +408,42 @@ final class UpgradeCommandTest extends TestCase
 
     public function test_upgrades_single_anchor_id_to_upgraded_state(): void
     {
-        $this->markTestIncomplete(
-            'Requires a PENDING OTS receipt and a mock calendar client returning a '
-            . 'completed Bitcoin attestation path. Same injection-seam blocker as above. '
-            . 'TODO: once the factory closure is in place, assert that: '
-            . '(1) exit code is 0, '
-            . '(2) upgraded[] contains one entry with previous_envelope_id and new_envelope_id, '
-            . '(3) the new envelope is readable from the chain with type attest.anchor.upgraded, '
-            . '(4) supersedes_envelope_id in the new payload matches previous_envelope_id.'
-        );
+        $store = $this->buildChain('single', 2);
+        $receipt = $this->otsReceipt($store, 'single', 1, 2, ProofState::PENDING);
+        $anchorEnvelope = $this->appendOtsAnchorEnvelope($store, 'single', $receipt);
+        $transactions = [];
+
+        $tester = $this->makeTester(function () use (&$transactions): OpenTimestampsCalendarClient {
+            return $this->calendarClient(
+                [new Response(200, ['Content-Type' => OpenTimestampsCalendarClient::CONTENT_TYPE], $this->bitcoinTimestampBytes())],
+                $transactions,
+            );
+        });
+        $exitCode = $tester->execute([
+            ...$this->baseArgs('single'),
+            '--anchor-id' => $receipt->anchorId,
+            '--calendar-url' => ['https://calendar.example'],
+            '--json' => true,
+        ]);
+
+        $display = $tester->getDisplay();
+        self::assertSame(0, $exitCode, 'Expected upgrade exit 0; output: ' . $display);
+
+        $payload = json_decode($display, true);
+        self::assertIsArray($payload, 'Output must be valid JSON');
+        self::assertCount(1, $payload['upgraded']);
+        self::assertSame([], $payload['unchanged']);
+        self::assertSame([], $payload['failed']);
+        self::assertSame($receipt->anchorId, $payload['upgraded'][0]['anchor_id']);
+        self::assertSame($anchorEnvelope->envelope->id, $payload['upgraded'][0]['previous_envelope_id']);
+        self::assertNotSame($anchorEnvelope->envelope->id, $payload['upgraded'][0]['new_envelope_id']);
+
+        $tail = $store->tail('single');
+        self::assertNotNull($tail);
+        self::assertSame(AnchorEnvelope::UPGRADED_TYPE, $tail->envelope->type);
+        self::assertSame($payload['upgraded'][0]['new_envelope_id'], $tail->envelope->id);
+        self::assertSame($anchorEnvelope->envelope->id, $tail->envelope->payload['supersedes_envelope_id']);
+        self::assertSame('upgraded', $tail->envelope->payload['state']);
+        self::assertCount(1, $transactions);
     }
 }

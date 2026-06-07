@@ -132,7 +132,7 @@ final class UpgradeCommand extends Command
             : OpenTimestampsCalendarClient::withGuzzle();
         /** @var list<string> $calendarUrls */
         if ($calendarUrls !== []) {
-            $driver = new OpenTimestampsDriver($client, $calendarUrls);
+            $driver = new OpenTimestampsDriver($client, $calendarUrls, upgradeAllowlist: $calendarUrls);
         } else {
             $driver = new OpenTimestampsDriver($client);
         }
@@ -144,12 +144,17 @@ final class UpgradeCommand extends Command
 
         // Filter: only pending OTS receipts that match our target.
         $candidates = [];
+        $matchedNonPending = null;
         foreach ($resolvedGroups as $resolved) {
             if (! $resolved->valid || $resolved->receipt === null) {
                 continue;
             }
             // Only OTS receipts can be upgraded; local-only (NullDriver) cannot.
             if ($resolved->receipt->driverName !== OpenTimestampsDriver::NAME) {
+                continue;
+            }
+            if ($hasAnchorId && $resolved->anchorId === $anchorId && $resolved->receipt->state !== ProofState::PENDING) {
+                $matchedNonPending = $resolved;
                 continue;
             }
             if ($resolved->receipt->state !== ProofState::PENDING) {
@@ -177,6 +182,36 @@ final class UpgradeCommand extends Command
             } else {
                 $output->writeln('upgraded 0, unchanged 0, failed 0');
             }
+            return 0;
+        }
+
+        // ── Handle idempotent --anchor-id for anchors that are already past PENDING
+        if ($hasAnchorId && $candidates === [] && $matchedNonPending !== null) {
+            $envelopeIds = $matchedNonPending->envelopeIds;
+            $envId = $envelopeIds === [] ? null : $envelopeIds[count($envelopeIds) - 1];
+            $receipt = $matchedNonPending->receipt;
+            assert($receipt !== null);
+
+            if ($jsonMode) {
+                $jsonOut = [
+                    'format_version' => 'attest.cli.upgrade.v1',
+                    'command'        => 'upgrade',
+                    'upgraded'       => [],
+                    'unchanged'      => [
+                        [
+                            'anchor_id'   => $matchedNonPending->anchorId,
+                            'envelope_id' => $envId,
+                            'state'       => $receipt->state->value,
+                        ],
+                    ],
+                    'failed'         => [],
+                    'warnings'       => [],
+                ];
+                $output->write(json_encode($jsonOut, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR));
+            } else {
+                $output->writeln('upgraded 0, unchanged 1, failed 0');
+            }
+
             return 0;
         }
 

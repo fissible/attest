@@ -6,12 +6,16 @@ namespace Fissible\Attest\Tests\Cli\Command;
 use Fissible\Attest\Anchor\AnchorService;
 use Fissible\Attest\Anchor\FileAnchorClaimStore;
 use Fissible\Attest\Anchor\NullDriver;
+use Fissible\Attest\Bundle\BundleConstants;
 use Fissible\Attest\Bundle\BundleExporter;
+use Fissible\Attest\Canonical\JcsEncoder;
 use Fissible\Attest\Chain\EvidenceChain;
 use Fissible\Attest\Chain\FileChainStore;
 use Fissible\Attest\Cli\Command\BundleVerifyCommand;
 use Fissible\Attest\Signing\KeyPair;
 use Fissible\Attest\Signing\SodiumSigner;
+use Fissible\Attest\Verification\Warning;
+use ParagonIE\ConstantTime\Base64;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Tester\CommandTester;
@@ -78,6 +82,31 @@ final class BundleVerifyCommandTest extends TestCase
         $exporter->writeTo($bundlePath);
 
         return [$bundlePath, $kp];
+    }
+
+    private function corruptFirstProofEnvelopeSignature(string $bundlePath, string $chainId): void
+    {
+        $entry = BundleConstants::PROOF_ENVELOPES_PREFIX
+            . substr(hash('sha256', $chainId), 0, 32) . '.jsonl';
+
+        $zip = new \ZipArchive();
+        self::assertTrue($zip->open($bundlePath) === true, 'Bundle ZIP must open for mutation');
+        $bytes = $zip->getFromName($entry);
+        self::assertIsString($bytes, 'Proof envelope entry must exist');
+
+        $lines = array_values(array_filter(explode("\n", $bytes), static fn (string $line): bool => $line !== ''));
+        self::assertNotEmpty($lines, 'Proof envelope entry must contain at least one line');
+
+        $decoded = json_decode($lines[0], true, flags: JSON_THROW_ON_ERROR);
+        self::assertIsArray($decoded);
+        $decoded['sig'] = 'base64:' . Base64::encode(str_repeat("\x00", SODIUM_CRYPTO_SIGN_BYTES));
+        $lines[0] = JcsEncoder::encode($decoded);
+        $mutated = implode("\n", $lines) . "\n";
+
+        self::assertTrue($zip->deleteName($entry), 'Existing proof envelope entry must be removable');
+        self::assertTrue($zip->addFromString($entry, $mutated), 'Mutated proof envelope entry must be writable');
+        $zip->setCompressionName($entry, \ZipArchive::CM_STORE);
+        self::assertTrue($zip->close(), 'Mutated bundle ZIP must close cleanly');
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -261,11 +290,24 @@ final class BundleVerifyCommandTest extends TestCase
 
     public function test_bundle_with_invalid_proof_envelope_signature_warns_and_drops_group(): void
     {
-        $this->markTestIncomplete(
-            'Constructing a bundle with a tampered proof envelope signature is expensive. ' .
-            'The Verifier-level behavior (DETACHED_ANCHOR_INVALID_SIGNATURE warning + group drop) ' .
-            'is already covered by VerifierDetachedAnchorSigTest. ' .
-            'Will be revisited if a BundleWriter mutation helper is added.'
-        );
+        [$bundlePath, $kp] = $this->buildAndExportBundle('chain1', 3);
+        $this->corruptFirstProofEnvelopeSignature($bundlePath, 'chain1');
+
+        $tester = $this->makeTester();
+        $exitCode = $tester->execute([
+            '--bundle'      => $bundlePath,
+            '--trusted-key' => ['k1=' . base64_encode($kp->publicKey)],
+            '--min-anchor'  => 'local_only',
+            '--json'        => true,
+        ]);
+
+        $display = $tester->getDisplay();
+        self::assertSame(3, $exitCode, 'Expected exit 3 after dropping invalid anchor group; output: ' . $display);
+
+        $payload = json_decode($display, true);
+        self::assertIsArray($payload, 'Output must be valid JSON; got: ' . $display);
+        self::assertSame('anchor_below_min', $payload['outcome']);
+        $warningCodes = array_map(static fn (array $warning): string => $warning['code'], $payload['warnings']);
+        self::assertContains(Warning::DETACHED_ANCHOR_INVALID_SIGNATURE, $warningCodes);
     }
 }

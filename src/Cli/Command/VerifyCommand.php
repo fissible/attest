@@ -6,9 +6,11 @@ namespace Fissible\Attest\Cli\Command;
 use Fissible\Attest\Chain\FileChainStore;
 use Fissible\Attest\Cli\Output\HumanResultEmitter;
 use Fissible\Attest\Cli\Output\JsonResultEmitter;
+use Fissible\Attest\Cli\Support\AnchorDriverFactory;
 use Fissible\Attest\Cli\Support\HeaderProviderFactory;
 use Fissible\Attest\Cli\Support\MinAnchorOption;
 use Fissible\Attest\Cli\Support\TrustedKeyLoader;
+use Fissible\Attest\Headers\HeaderProviderSet;
 use Fissible\Attest\Verification\SignatureVerifier;
 use Fissible\Attest\Verification\VerificationOutcome;
 use Fissible\Attest\Verification\VerificationPolicy;
@@ -22,6 +24,18 @@ use Symfony\Component\Console\Output\OutputInterface;
 #[AsCommand(name: 'verify', description: 'Verify a chain segment against trusted keys and policy.')]
 final class VerifyCommand extends Command
 {
+    /** @var (callable(?string, ?string, ?string): HeaderProviderSet)|null */
+    private $headerProviderFactory;
+
+    /**
+     * @param (callable(?string, ?string, ?string): HeaderProviderSet)|null $headerProviderFactory
+     */
+    public function __construct(?callable $headerProviderFactory = null)
+    {
+        parent::__construct();
+        $this->headerProviderFactory = $headerProviderFactory;
+    }
+
     protected function configure(): void
     {
         $this
@@ -77,11 +91,12 @@ final class VerifyCommand extends Command
                 $input->getOption('trusted-key-file') ?: [],
             );
 
-            $headers = HeaderProviderFactory::build(
-                $input->getOption('bitcoin-core-rpc'),
-                $input->getOption('bitcoin-core-cookie'),
-                $input->getOption('esplora-url'),
-            );
+            $bitcoinCoreRpc = $input->getOption('bitcoin-core-rpc');
+            $bitcoinCoreCookie = $input->getOption('bitcoin-core-cookie');
+            $esploraUrl = $input->getOption('esplora-url');
+            $headers = $this->headerProviderFactory !== null
+                ? ($this->headerProviderFactory)($bitcoinCoreRpc, $bitcoinCoreCookie, $esploraUrl)
+                : HeaderProviderFactory::build($bitcoinCoreRpc, $bitcoinCoreCookie, $esploraUrl);
         } catch (\InvalidArgumentException | \RuntimeException $e) {
             $output->writeln('error: ' . $e->getMessage());
             return 1;
@@ -97,6 +112,7 @@ final class VerifyCommand extends Command
                 allowProviderDisagreement: (bool) $input->getOption('allow-provider-disagreement'),
                 requireTrustedKey: ! $input->getOption('allow-untrusted'),
             ),
+            anchorDrivers: AnchorDriverFactory::verificationDrivers(),
             headers: $headers,
         );
 

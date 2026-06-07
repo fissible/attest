@@ -3,12 +3,22 @@ declare(strict_types=1);
 
 namespace Fissible\Attest\Tests\Cli\Command;
 
+use Fissible\Attest\Anchor\AnchorEnvelope;
+use Fissible\Attest\Anchor\AnchorReceipt;
+use Fissible\Attest\Anchor\AnchorTarget;
 use Fissible\Attest\Anchor\AnchorService;
 use Fissible\Attest\Anchor\FileAnchorClaimStore;
 use Fissible\Attest\Anchor\NullDriver;
+use Fissible\Attest\Anchor\OpenTimestamps\OpenTimestampsAttestation;
+use Fissible\Attest\Anchor\OpenTimestamps\OpenTimestampsCodec;
+use Fissible\Attest\Anchor\OpenTimestamps\OpenTimestampsProof;
+use Fissible\Attest\Anchor\OpenTimestamps\OpenTimestampsTimestamp;
+use Fissible\Attest\Anchor\OpenTimestampsDriver;
+use Fissible\Attest\Anchor\ProofState;
 use Fissible\Attest\Chain\EvidenceChain;
 use Fissible\Attest\Chain\FileChainStore;
 use Fissible\Attest\Cli\Command\BundleExportCommand;
+use Fissible\Attest\Merkle\MerkleTree;
 use Fissible\Attest\Signing\KeyPair;
 use Fissible\Attest\Signing\SodiumSigner;
 use PHPUnit\Framework\TestCase;
@@ -61,6 +71,56 @@ final class BundleExportCommandTest extends TestCase
         $claimStore = new FileAnchorClaimStore($this->tmpDir);
         $service = new AnchorService($store, $claimStore, $signer);
         $service->anchorRange($chainId, $anchorFrom, $anchorTo, new NullDriver());
+    }
+
+    private function buildChainWithPendingOtsAnchor(
+        string $chainId,
+        int $count,
+        int $anchorFrom,
+        int $anchorTo,
+    ): AnchorReceipt {
+        $store = new FileChainStore($this->tmpDir);
+        $kp = KeyPair::generate();
+        $signer = new SodiumSigner($kp, keyId: 'k1');
+        $chain = EvidenceChain::open($store, $chainId, $signer);
+        for ($i = 1; $i <= $count; $i++) {
+            $chain->record('app.event', ['n' => $i]);
+        }
+
+        $receipt = $this->pendingOtsReceipt($store, $chainId, $anchorFrom, $anchorTo);
+        $chain->record(AnchorEnvelope::SUBMITTED_TYPE, AnchorEnvelope::submittedPayload($receipt));
+
+        return $receipt;
+    }
+
+    private function targetFor(FileChainStore $store, string $chainId, int $fromSeq, int $toSeq): AnchorTarget
+    {
+        $rawBytes = iterator_to_array($store->readRawRange($chainId, $fromSeq, $toSeq), false);
+
+        return new AnchorTarget(
+            chainId: $chainId,
+            fromSeq: $fromSeq,
+            toSeq: $toSeq,
+            merkleAlgorithm: MerkleTree::ALGORITHM,
+            rootHex: MerkleTree::rootHex($rawBytes),
+        );
+    }
+
+    private function pendingOtsReceipt(FileChainStore $store, string $chainId, int $fromSeq, int $toSeq): AnchorReceipt
+    {
+        $target = $this->targetFor($store, $chainId, $fromSeq, $toSeq);
+        $rootBytes = hex2bin($target->rootHex);
+        self::assertIsString($rootBytes);
+        $timestamp = (new OpenTimestampsTimestamp($rootBytes))
+            ->withAttestation(OpenTimestampsAttestation::pending('https://calendar.example'));
+
+        return new AnchorReceipt(
+            driverName: OpenTimestampsDriver::NAME,
+            target: $target,
+            state: ProofState::PENDING,
+            receiptBytes: OpenTimestampsCodec::encodeDetached(new OpenTimestampsProof($rootBytes, $timestamp)),
+            createdAtIso8601: '2026-06-06T00:00:00.000Z',
+        );
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -136,10 +196,28 @@ final class BundleExportCommandTest extends TestCase
 
     public function test_emits_pending_warning_when_anchor_is_pending(): void
     {
-        $this->markTestIncomplete(
-            'NullDriver produces SUBMITTED state, not PENDING. '
-            . 'OTS-pending warning tests require HTTP mocking (lands in a later task).'
-        );
+        $receipt = $this->buildChainWithPendingOtsAnchor('tenant:5', 5, 1, 5);
+
+        $outPath = $this->outDir . '/pending.attest';
+        $tester = $this->makeTester();
+        $exitCode = $tester->execute([
+            '--storage-root' => $this->tmpDir,
+            '--chain'        => 'tenant:5',
+            '--from'         => '1',
+            '--to'           => '5',
+            '--out'          => $outPath,
+            '--json'         => true,
+        ]);
+
+        $display = $tester->getDisplay();
+        self::assertSame(0, $exitCode, 'Expected exit 0; output: ' . $display);
+        self::assertFileExists($outPath, 'Bundle file must exist after export');
+
+        $payload = json_decode($display, true);
+        self::assertIsArray($payload, 'Output must be valid JSON; got: ' . $display);
+        self::assertCount(1, $payload['warnings']);
+        self::assertSame('bundle_export_pending_anchor', $payload['warnings'][0]['code']);
+        self::assertSame($receipt->anchorId, $payload['warnings'][0]['context']['anchor_id']);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

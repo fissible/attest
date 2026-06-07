@@ -3,12 +3,12 @@ declare(strict_types=1);
 
 namespace Fissible\Attest\Cli\Command;
 
-use Fissible\Attest\Anchor\NullDriver;
 use Fissible\Attest\Bundle\BundleReader;
 use Fissible\Attest\Bundle\BundleStore;
 use Fissible\Attest\Bundle\InvalidBundle;
 use Fissible\Attest\Cli\Output\HumanResultEmitter;
 use Fissible\Attest\Cli\Output\JsonResultEmitter;
+use Fissible\Attest\Cli\Support\AnchorDriverFactory;
 use Fissible\Attest\Cli\Support\HeaderProviderFactory;
 use Fissible\Attest\Cli\Support\MinAnchorOption;
 use Fissible\Attest\Cli\Support\TrustedKeyLoader;
@@ -133,9 +133,8 @@ final class BundleVerifyCommand extends Command
         // CRITICAL: Claimed keys from the bundle are NEVER auto-trusted.
         // Only $trustedKeys (from --trusted-key / --trusted-key-file) are trust inputs.
         //
-        // Always register NullDriver so "local-only" receipts in proof envelopes can be
-        // verified when --min-anchor is active. Other drivers (OTS, etc.) are out of scope
-        // for v1 bundle:verify but would be added here when implemented.
+        // Always register local-only verification. OTS verification is added when
+        // the optional Guzzle PSR-18 stack is installed.
         $verifier = new Verifier(
             store: $bundleStore,
             signatures: new SignatureVerifier($trustedKeys),
@@ -144,7 +143,7 @@ final class BundleVerifyCommand extends Command
                 allowProviderDisagreement: (bool) $input->getOption('allow-provider-disagreement'),
                 requireTrustedKey: ! $input->getOption('allow-untrusted'),
             ),
-            anchorDrivers: [new NullDriver()],
+            anchorDrivers: AnchorDriverFactory::verificationDrivers(),
             headers: $headers,
             detachedAnchorEnvelopes: $proofEnvelopes,
         );

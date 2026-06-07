@@ -9,12 +9,22 @@ use Fissible\Attest\Anchor\AnchorService;
 use Fissible\Attest\Anchor\AnchorTarget;
 use Fissible\Attest\Anchor\FileAnchorClaimStore;
 use Fissible\Attest\Anchor\NullDriver;
+use Fissible\Attest\Anchor\OpenTimestamps\OpenTimestampsAttestation;
+use Fissible\Attest\Anchor\OpenTimestamps\OpenTimestampsCalendarClient;
+use Fissible\Attest\Anchor\OpenTimestamps\OpenTimestampsCodec;
+use Fissible\Attest\Anchor\OpenTimestamps\OpenTimestampsTimestamp;
 use Fissible\Attest\Chain\EvidenceChain;
 use Fissible\Attest\Chain\FileChainStore;
 use Fissible\Attest\Cli\Command\AnchorCommand;
 use Fissible\Attest\Merkle\MerkleTree;
 use Fissible\Attest\Signing\KeyPair;
 use Fissible\Attest\Signing\SodiumSigner;
+use GuzzleHttp\Client;
+use GuzzleHttp\Handler\MockHandler;
+use GuzzleHttp\HandlerStack;
+use GuzzleHttp\Middleware;
+use GuzzleHttp\Psr7\HttpFactory;
+use GuzzleHttp\Psr7\Response;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Tester\CommandTester;
@@ -45,10 +55,13 @@ final class AnchorCommandTest extends TestCase
     // Helpers
     // ────────────────────────────────────────────────────────────────────────
 
-    private function makeTester(): CommandTester
+    /**
+     * @param (callable(): OpenTimestampsCalendarClient)|null $calendarClientFactory
+     */
+    private function makeTester(?callable $calendarClientFactory = null): CommandTester
     {
         $application = new Application();
-        $application->add(new AnchorCommand());
+        $application->add(new AnchorCommand($calendarClientFactory));
         $application->setAutoExit(false);
         $command = $application->find('anchor');
         return new CommandTester($command);
@@ -93,6 +106,29 @@ final class AnchorCommandTest extends TestCase
         ];
     }
 
+    /**
+     * @param list<Response> $responses
+     * @param list<array{request: \Psr\Http\Message\RequestInterface, response?: \Psr\Http\Message\ResponseInterface, error?: mixed}> $transactions
+     */
+    private function calendarClient(array $responses, array &$transactions): OpenTimestampsCalendarClient
+    {
+        $mock = new MockHandler($responses);
+        $stack = HandlerStack::create($mock);
+        $stack->push(Middleware::history($transactions));
+        $http = new Client(['handler' => $stack]);
+        $factory = new HttpFactory();
+
+        return new OpenTimestampsCalendarClient($http, $factory, $factory);
+    }
+
+    private function pendingTimestampBytes(): string
+    {
+        return OpenTimestampsCodec::encodeTimestampBytes(
+            (new OpenTimestampsTimestamp(str_repeat("\x00", 32)))
+                ->withAttestation(OpenTimestampsAttestation::pending('https://calendar.example')),
+        );
+    }
+
     // ────────────────────────────────────────────────────────────────────────
     // Test 1: local-only driver anchors successfully, exits 0, JSON output ok
     // ────────────────────────────────────────────────────────────────────────
@@ -129,14 +165,39 @@ final class AnchorCommandTest extends TestCase
 
     public function test_anchors_range_with_opentimestamps_driver_via_mocked_calendar_client(): void
     {
-        $this->markTestIncomplete(
-            'OTS integration test requires a mock PSR-18 client injected into '
-            . 'OpenTimestampsCalendarClient::__construct() instead of ::withGuzzle(). '
-            . 'AnchorCommand currently uses ::withGuzzle() unconditionally; a '
-            . 'constructor-injection seam (e.g. a calendar-client factory closure) is '
-            . 'needed before this test can be made active. TODO: add the seam in a '
-            . 'follow-up task so this test and test_calendar_unavailable_exits_4 can land.'
-        );
+        $this->buildChain('tenant:5', 3);
+        $transactions = [];
+
+        $tester = $this->makeTester(function () use (&$transactions): OpenTimestampsCalendarClient {
+            return $this->calendarClient(
+                [new Response(200, ['Content-Type' => OpenTimestampsCalendarClient::CONTENT_TYPE], $this->pendingTimestampBytes())],
+                $transactions,
+            );
+        });
+
+        $exitCode = $tester->execute([
+            ...$this->baseArgs('tenant:5', 1, 3),
+            '--driver' => 'opentimestamps',
+            '--calendar-url' => ['https://calendar.example'],
+            '--json' => true,
+        ]);
+
+        $display = $tester->getDisplay();
+        self::assertSame(0, $exitCode, 'Expected exit 0; output: ' . $display);
+
+        $payload = json_decode($display, true);
+        self::assertIsArray($payload, 'Output must be valid JSON');
+        self::assertSame('attest.cli.anchor.v1', $payload['format_version']);
+        self::assertSame('anchored', $payload['result']);
+        self::assertSame('pending', $payload['state']);
+        self::assertSame('opentimestamps', $payload['driver']);
+        self::assertNotNull($payload['anchor_id']);
+        self::assertNotNull($payload['envelope_id']);
+
+        self::assertCount(1, $transactions);
+        self::assertSame('POST', $transactions[0]['request']->getMethod());
+        self::assertSame('https://calendar.example/digest', (string) $transactions[0]['request']->getUri());
+        self::assertSame(OpenTimestampsCalendarClient::CONTENT_TYPE, $transactions[0]['request']->getHeaderLine('Content-Type'));
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -227,12 +288,25 @@ final class AnchorCommandTest extends TestCase
 
     public function test_calendar_unavailable_exits_4(): void
     {
-        $this->markTestIncomplete(
-            'Exercising CalendarUnavailable requires a mock PSR-18 client that '
-            . 'throws CalendarUnavailable on submit(). Same injection-seam blocker '
-            . 'as test_anchors_range_with_opentimestamps_driver_via_mocked_calendar_client. '
-            . 'Mark active once the factory-closure seam lands.'
-        );
+        $this->buildChain('cu', 2);
+        $transactions = [];
+
+        $tester = $this->makeTester(function () use (&$transactions): OpenTimestampsCalendarClient {
+            return $this->calendarClient(
+                [new Response(503, [], 'calendar down')],
+                $transactions,
+            );
+        });
+
+        $exitCode = $tester->execute([
+            ...$this->baseArgs('cu', 1, 2),
+            '--driver' => 'opentimestamps',
+            '--calendar-url' => ['https://calendar.example'],
+        ]);
+
+        self::assertSame(4, $exitCode, 'Expected exit 4; output: ' . $tester->getDisplay());
+        self::assertStringContainsString('calendar unavailable', strtolower($tester->getDisplay()));
+        self::assertCount(1, $transactions);
     }
 
     // ────────────────────────────────────────────────────────────────────────
