@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- Optional `fsync` flag on `FileChainStore` (default off). When enabled, each append issues an OS-level `fsync()` after `fflush()` for power-loss durability, at a per-append throughput cost. Uses PHP's native `fsync()` (PHP ≥ 8.1; core requires ≥ 8.2). The `.meta.json` / `index.json` sidecars continue to rely on atomic rename and are not separately fsynced.
+
 ## [0.4.2-alpha] — 2026-06-07
 
 ### Fixed

@@ -63,4 +63,20 @@ final class FileChainStoreAppendTest extends TestCase
         $meta = json_decode((string) file_get_contents($metaPath), true);
         $this->assertSame(3, $meta['envelope_count']);
     }
+
+    public function test_append_with_fsync_enabled_persists_and_reads_back(): void
+    {
+        $store = new FileChainStore($this->root, fsync: true);
+        $signer = $this->signer();
+        $this->appendOne($store, 'c1', $signer, type: 'first');
+        $this->appendOne($store, 'c1', $signer, type: 'second');
+
+        $tail = $store->tail('c1');
+        $this->assertNotNull($tail);
+        $this->assertSame('second', $tail->envelope->type);
+        $this->assertSame(2, $tail->envelope->seq);
+
+        $envs = iterator_to_array($store->readRange('c1', 1), false);
+        $this->assertCount(2, $envs);
+    }
 }

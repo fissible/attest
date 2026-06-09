@@ -10,7 +10,7 @@ final class FileChainStore implements ChainStore, RawChainStore
 {
     private readonly PathMapper $mapper;
 
-    public function __construct(string $rootDir)
+    public function __construct(string $rootDir, private readonly bool $fsync = false)
     {
         $this->mapper = new PathMapper($rootDir);
         if (! is_dir($this->mapper->chainsDir())) {
@@ -66,10 +66,15 @@ final class FileChainStore implements ChainStore, RawChainStore
             try {
                 fwrite($dataFp, $line);
                 fflush($dataFp);
-                // PHP has no portable fsync; fflush + close is sufficient on common
-                // POSIX filesystems for durability against process crashes. Power-loss
-                // durability requires an OS-level fsync hook — documented as a future
-                // enhancement in CHANGELOG.
+                // fflush pushes PHP's buffers to the OS — durable against process
+                // crashes. With fsync enabled, also force the OS to flush to the
+                // physical disk for power-loss durability. This is opt-in because an
+                // fsync per append costs throughput. fsync() requires PHP >= 8.1;
+                // core requires >= 8.2. Note: the .meta.json / index.json sidecars
+                // are written via atomic rename and are not separately fsynced.
+                if ($this->fsync) {
+                    fsync($dataFp);
+                }
             } finally {
                 fclose($dataFp);
             }
