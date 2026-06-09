@@ -4,7 +4,101 @@
 
 **Status:** Alpha — under active development. API will stabilize at v1.0.
 
-**Disambiguation:** This is not artifact-provenance (Sigstore/SLSA). It proves *what your application did and when*.
+---
+
+## What is this, in plain terms?
+
+`fissible/attest` is a **tamper-evident logbook for the important things your software does.**
+
+Most applications already log events — "invoice approved," "document published," "permission
+granted." But ordinary logs and database rows can be quietly edited or deleted afterward, and
+nobody can tell. If a row says a contract was approved at 3pm Tuesday, you're trusting that
+*nobody changed it since.*
+
+attest removes that "just trust us." Every event you record is:
+
+- **Signed** — stamped with your application's cryptographic key, so a forged entry can be told
+  apart from a real one.
+- **Chained** — each entry is linked to the one before it by a fingerprint (hash). Change,
+  insert, or delete any entry and the chain visibly breaks.
+- **Optionally anchored in time** — a batch of entries can be "notarized" against the Bitcoin
+  blockchain, so you can later prove the entries existed *before* a certain point in time, even
+  to someone who has no reason to trust you.
+
+The result is a history you can hand to an auditor, a court, a customer, or your future self and
+*prove* it hasn't been tampered with.
+
+## Why is that valuable?
+
+Picture a dispute months from now:
+
+> A customer insists they never approved a $50,000 contract. Your database has a row saying they
+> did — but that row could have been inserted or edited at any time by anyone with database
+> access, so on its own it proves nothing.
+
+With attest, that approval was signed and chained the instant it happened. If anyone altered it,
+back-dated it, or slipped in a fake one, verification fails and points at the broken entry. If
+you also anchored it, you can show it existed *before* a specific Bitcoin block — so it couldn't
+have been fabricated after the fact.
+
+Typical uses: audit trails, compliance evidence, security investigations, financial and approval
+workflows, and anywhere "prove this log wasn't edited" actually matters.
+
+> **What this is not:** this is not artifact/build provenance (Sigstore, SLSA). Those prove where
+> a binary came from. attest proves **what your application did, and when.**
+
+## The 30-second example
+
+Record something important when it happens:
+
+```php
+use Fissible\Attest\Chain\EvidenceChain;
+use Fissible\Attest\Chain\FileChainStore;
+use Fissible\Attest\Signing\KeyPair;
+use Fissible\Attest\Signing\SodiumSigner;
+
+// Your app's signing identity ("this entry really came from us").
+$keys   = KeyPair::generate();   // save these; the public key is needed to verify later
+$signer = new SodiumSigner($keys, keyId: 'station-prod-2026-01');
+
+// Where the chain is stored, and which chain we're writing to.
+$store = new FileChainStore(__DIR__ . '/storage/attest');
+$chain = EvidenceChain::open($store, 'contracts', $signer);
+
+// Record an event.
+$chain->record('contract.approved', [
+    'contract_id' => 'C-2026-014',
+    'approved_by' => 'user:7',
+    'amount'      => 50_000,
+]);
+```
+
+Later — maybe months later — prove the whole history is intact and authentic:
+
+```php
+use Fissible\Attest\Verification\SignatureVerifier;
+use Fissible\Attest\Verification\TrustedKey;
+use Fissible\Attest\Verification\Verifier;
+
+$verifier = new Verifier(
+    store: $store,
+    signatures: new SignatureVerifier([
+        new TrustedKey($keys->publicKey, keyId: 'station-prod-2026-01'),
+    ]),
+);
+
+$result = $verifier->verifyChain('contracts');
+
+$result->isVerified();   // true only if every entry is signed by a trusted key
+                         // and nothing was altered, inserted, or deleted.
+```
+
+If someone tampers with any stored entry, `isVerified()` returns `false` and
+`$result->brokenAtSeq` tells you exactly which entry broke.
+
+That's the whole idea. Everything below is detail you can read when you need it.
+
+---
 
 ## Install
 
@@ -12,15 +106,47 @@
 composer require fissible/attest
 ```
 
-## Integrity And Anchoring
+Requires PHP `^8.2` with the bundled `sodium` extension (used for Ed25519 signing).
 
-`fissible/attest` always starts with local integrity: each envelope is Ed25519-signed, stored in canonical JSON form, and linked to the previous envelope by hash. That proves whether a local chain is internally consistent and signed by expected keys.
+Using Laravel? See [`fissible/attest-laravel`](https://github.com/fissible/attest-laravel) for
+Eloquent storage, Artisan commands, queue-ready anchoring, and a JSONL importer.
 
-Public anchoring adds an external time and publication signal. Chain ranges are batched into RFC 6962-style Merkle roots, submitted to OpenTimestamps calendars, and later upgraded when a Bitcoin block-header attestation is available. Verification can then require anything from a local-only receipt through `bitcoin_verified`.
+## How it works (a layer deeper)
 
-Anchoring is alpha-quality in this release line. Treat the APIs as useful for integration testing and design feedback, not yet as a long-term stable surface.
+`fissible/attest` always starts with **local integrity**, and lets you optionally add a
+**public time anchor** on top.
 
-## Verifier Example
+### Local integrity (always on)
+
+Each event becomes an **envelope**: it is Ed25519-signed, stored in canonical JSON form, and
+linked to the previous envelope by hash. That proves whether a local chain is internally
+consistent and signed by the keys you expect — no network and no third party required.
+
+### Public anchoring (optional)
+
+Anchoring adds an external **time and publication** signal. Chain ranges are batched into RFC
+6962-style Merkle roots, submitted to OpenTimestamps calendars, and later *upgraded* when a
+Bitcoin block-header attestation is available.
+
+Anchoring is alpha-quality in this release line. Treat the APIs as useful for integration
+testing and design feedback, not yet as a long-term stable surface.
+
+### Verification levels
+
+Verification can require anything from a local-only receipt up to a full Bitcoin-confirmed
+attestation. The meaningful levels, weakest to strongest:
+
+| Level (`AnchorOutcome`) | Meaning |
+|---|---|
+| `local_only` | Signed and chained; no external time proof. |
+| `pending` | Submitted to a calendar; not yet confirmed. |
+| `upgraded_no_headers` | Calendar attestation present; block headers not checked. |
+| `remote_header_confirmed` | Confirmed via a remote explorer — the explorer is part of the trust path. |
+| `bitcoin_verified` | Confirmed against a Bitcoin block header you trust (e.g. your own node). |
+
+## Full verifier example (anchored)
+
+The complete shape, requiring a Bitcoin-confirmed anchor and a trusted Ed25519 key:
 
 ```php
 use Fissible\Attest\Anchor\AnchorOutcome;
@@ -65,13 +191,17 @@ $verifier = new Verifier(
 $result = $verifier->verifyChain('tenant:5', fromSeq: 1, toSeq: 1000);
 ```
 
-Use `AnchorOutcome::REMOTE_HEADER_CONFIRMED` with `EsploraHeaderProvider` when a remote explorer is acceptable. It is convenient, but weaker than a local Bitcoin Core node because the remote service is part of the trust path.
+Use `AnchorOutcome::REMOTE_HEADER_CONFIRMED` with `EsploraHeaderProvider` when a remote explorer
+is acceptable. It is convenient, but weaker than a local Bitcoin Core node because the remote
+service is part of the trust path.
 
-OpenTimestamps calendars receive nonced commitments rather than raw chain roots. That protects the committed content, but submission timing and IP metadata can still link activity.
+OpenTimestamps calendars receive nonced commitments rather than raw chain roots. That protects
+the committed content, but submission timing and IP metadata can still link activity.
 
 ## Payload Types
 
-Payloads passed to `record()` accept JSON-native scalars (string, int, bool, null), arrays, objects, plus opaque binary blobs via `Fissible\Attest\Envelope\Binary`. Example:
+Payloads passed to `record()` accept JSON-native scalars (string, int, bool, null), arrays,
+objects, plus opaque binary blobs via `Fissible\Attest\Envelope\Binary`. Example:
 
 ```php
 use Fissible\Attest\Envelope\Binary;
@@ -83,9 +213,12 @@ $chain->record('cms.attachment.added', [
 ]);
 ```
 
-Binary blobs are stored in canonical form as `{"_attest_binary": "<base64>"}` and round-trip stably. Each blob is capped at 64KB raw; larger artifacts must be stored externally and referenced by URL and sha256 hash.
+Binary blobs are stored in canonical form as `{"_attest_binary": "<base64>"}` and round-trip
+stably. Each blob is capped at 64KB raw; larger artifacts must be stored externally and
+referenced by URL and sha256 hash.
 
-The total signed canonical envelope size is capped at 64KB; payloads approaching that size will be rejected at `record()` time.
+The total signed canonical envelope size is capped at 64KB; payloads approaching that size will
+be rejected at `record()` time.
 
 ## CLI
 
