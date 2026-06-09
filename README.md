@@ -213,9 +213,10 @@ $chain->record('cms.attachment.added', [
 ]);
 ```
 
-Binary blobs are stored in canonical form as `{"_attest_binary": "<base64>"}` and round-trip
-stably. Each blob is capped at 64KB raw; larger artifacts must be stored externally and
-referenced by URL and sha256 hash.
+Binary blobs are stored in canonical form as `{"$binary": "<base64>"}` and round-trip stably.
+The `$binary` key is reserved — a payload that uses it directly is rejected, so your data can
+never be mistaken for the binary sentinel. Each blob is capped at 64KB raw; larger artifacts
+must be stored externally and referenced by URL and sha256 hash.
 
 The total signed canonical envelope size is capped at 64KB; payloads approaching that size will
 be rejected at `record()` time.

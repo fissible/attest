@@ -79,9 +79,9 @@ final class PayloadValidatorTest extends TestCase
 
     public function test_accepts_binary_wrapper(): void
     {
-        // ensure() returns the canonical form: Binary → ['_attest_binary' => base64]
+        // ensure() returns the canonical form: Binary → ['$binary' => base64]
         $result = PayloadValidator::ensure(['b' => Binary::ofBase64('aGVsbG8=')]);
-        $this->assertSame(['_attest_binary' => 'aGVsbG8='], $result['b']);
+        $this->assertSame(['$binary' => 'aGVsbG8='], $result['b']);
     }
 
     public function test_rejects_binary_over_size_cap(): void
@@ -99,5 +99,15 @@ final class PayloadValidatorTest extends TestCase
         // Message format: 'Canonical payload exceeds <MAX_CANONICAL_BYTES> bytes (got ...)'
         $this->expectExceptionMessageMatches('/Canonical payload exceeds \d+ bytes/');
         PayloadValidator::ensure($big);
+    }
+
+    public function test_rejects_reserved_binary_sentinel_key(): void
+    {
+        // The "$binary" key is reserved for the canonical binary sentinel; a raw
+        // user array using it must be rejected so user data can never be confused
+        // with a Binary blob on the wire. Use Binary::ofRaw()/ofBase64() instead.
+        $this->expectException(InvalidPayload::class);
+        $this->expectExceptionMessage('Reserved key');
+        PayloadValidator::ensure(['b' => ['$binary' => 'foo']]);
     }
 }

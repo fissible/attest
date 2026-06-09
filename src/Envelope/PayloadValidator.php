@@ -74,6 +74,11 @@ final class PayloadValidator
             if ($value === []) {
                 return;
             }
+            if (array_key_exists('$binary', $value)) {
+                throw new InvalidPayload(
+                    "Reserved key '\$binary' at path '$path' is reserved for the canonical binary sentinel; pass a Binary instance instead"
+                );
+            }
             $isList = array_is_list($value);
             $allStringKeys = ! $isList && array_reduce(
                 array_keys($value),
@@ -94,11 +99,11 @@ final class PayloadValidator
         );
     }
 
-    /** Convert Binary wrappers into their canonical {"_attest_binary": ...} form. */
+    /** Convert Binary wrappers into their canonical {"$binary": ...} form. */
     private static function toCanonical(mixed $value): mixed
     {
         if ($value instanceof Binary) {
-            return ['_attest_binary' => $value->base64];
+            return ['$binary' => $value->base64];
         }
         if (is_array($value)) {
             return array_map(self::toCanonical(...), $value);

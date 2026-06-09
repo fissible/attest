@@ -34,7 +34,7 @@ final class BinaryRoundTripTest extends TestCase
         $canonical = PayloadValidator::ensure($payload);
 
         self::assertSame(
-            ['blob' => ['_attest_binary' => base64_encode('hi')]],
+            ['blob' => ['$binary' => base64_encode('hi')]],
             $canonical,
         );
     }
@@ -46,7 +46,7 @@ final class BinaryRoundTripTest extends TestCase
 
         $encoded = JcsEncoder::encode($canonical);
 
-        self::assertStringContainsString('"_attest_binary":"' . base64_encode('hi') . '"', $encoded);
+        self::assertStringContainsString('"$binary":"' . base64_encode('hi') . '"', $encoded);
     }
 
     public function test_record_with_binary_payload_signs_and_round_trips_to_storage(): void
@@ -59,7 +59,7 @@ final class BinaryRoundTripTest extends TestCase
         $signed = $chain->record('app.event', ['blob' => Binary::ofRaw("\x00\x01\x02hello")]);
 
         self::assertSame(
-            ['blob' => ['_attest_binary' => base64_encode("\x00\x01\x02hello")]],
+            ['blob' => ['$binary' => base64_encode("\x00\x01\x02hello")]],
             $signed->envelope->payload,
         );
 
@@ -67,7 +67,7 @@ final class BinaryRoundTripTest extends TestCase
         $reread = EnvelopeCodec::decodeSigned($signed->signedCanonicalBytes());
         self::assertSame($signed->signedCanonicalBytes(), $reread->signedCanonicalBytes());
         self::assertSame(
-            ['blob' => ['_attest_binary' => base64_encode("\x00\x01\x02hello")]],
+            ['blob' => ['$binary' => base64_encode("\x00\x01\x02hello")]],
             $reread->envelope->payload,
         );
     }

@@ -7,7 +7,8 @@ use ParagonIE\ConstantTime\Base64;
 
 /**
  * Opaque binary blob carried in payloads. Always serialized as
- * {"_attest_binary": "<base64>"} in canonical form.
+ * {"$binary": "<base64>"} in canonical form. The "$binary" key is reserved:
+ * PayloadValidator rejects user payloads that use it directly.
  *
  * Hard cap: 64KB raw. Larger blobs must be stored externally and referenced
  * by URL + sha256 in the payload.
