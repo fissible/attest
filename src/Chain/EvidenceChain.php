@@ -13,6 +13,7 @@ use Symfony\Component\Uid\Ulid;
  * Friendly wrapper that hides the ChainStore callback shape.
  * Use this in application code; reach for ChainStore directly only when
  * you need full control over the build-and-sign callback.
+ * @api
  */
 final readonly class EvidenceChain
 {

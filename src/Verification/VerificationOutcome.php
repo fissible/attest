@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Fissible\Attest\Verification;
 
+/**
+ * @api
+ */
 enum VerificationOutcome: string
 {
     case VERIFIED = 'verified';

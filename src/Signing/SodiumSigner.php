@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Fissible\Attest\Signing;
 
+/**
+ * @api
+ */
 final class SodiumSigner implements Signer
 {
     public function __construct(

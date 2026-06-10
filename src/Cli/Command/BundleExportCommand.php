@@ -13,6 +13,9 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
 #[AsCommand(name: 'bundle:export', description: 'Export a chain segment to a portable bundle.')]
+/**
+ * @internal
+ */
 final class BundleExportCommand extends Command
 {
     protected function configure(): void

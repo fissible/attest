@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Fissible\Attest\Verification;
 
+/**
+ * @api
+ */
 final readonly class KeyMatch
 {
     public const MATCHED_BY_KEY_ID = 'key_id';

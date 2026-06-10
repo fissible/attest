@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Fissible\Attest\Signing;
 
+/**
+ * @internal
+ */
 final class SignatureVerification
 {
     public static function verify(string $message, string $signature, string $publicKey): bool

@@ -14,6 +14,9 @@ use Fissible\Attest\Envelope\SignedEnvelope;
 use Fissible\Attest\Headers\HeaderProviderSet;
 use Fissible\Attest\Merkle\MerkleTree;
 
+/**
+ * @api
+ */
 final class Verifier
 {
     /** @var array<string, AnchorDriver> */

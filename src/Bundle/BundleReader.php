@@ -7,6 +7,9 @@ use Fissible\Attest\Envelope\EnvelopeCodec;
 use Fissible\Attest\Envelope\SignedEnvelope;
 use Fissible\Attest\Verification\Warning;
 
+/**
+ * @api
+ */
 final class BundleReader
 {
     private \ZipArchive $zip;

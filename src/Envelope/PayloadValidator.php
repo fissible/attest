@@ -13,6 +13,7 @@ use Fissible\Attest\Canonical\JcsEncoder;
  *   - canonical payload size cap: 60KB (sanity ceiling leaving ≥4KB for envelope
  *     frame overhead under the authoritative 64KB signed envelope cap enforced by
  *     SignedEnvelope::sign() and EnvelopeCodec::decodeSigned())
+ * @api
  */
 final class PayloadValidator
 {

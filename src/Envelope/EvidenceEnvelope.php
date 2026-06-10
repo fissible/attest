@@ -8,6 +8,7 @@ namespace Fissible\Attest\Envelope;
  *
  * The fields here are what get RFC 8785-canonicalized and signed by Ed25519.
  * The resulting signature is added in SignedEnvelope.
+ * @api
  */
 final readonly class EvidenceEnvelope
 {

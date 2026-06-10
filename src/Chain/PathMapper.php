@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Fissible\Attest\Chain;
 
+/**
+ * @internal
+ */
 final readonly class PathMapper
 {
     private const MAX_CHAIN_ID_LEN = 191;

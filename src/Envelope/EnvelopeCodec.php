@@ -5,6 +5,9 @@ namespace Fissible\Attest\Envelope;
 
 use ParagonIE\ConstantTime\Base64;
 
+/**
+ * @internal
+ */
 final class EnvelopeCodec
 {
     public static function decodeSigned(string $signedCanonicalBytes): SignedEnvelope

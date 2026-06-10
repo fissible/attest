@@ -5,6 +5,9 @@ namespace Fissible\Attest\Cli\Support;
 
 use Fissible\Attest\Anchor\AnchorOutcome;
 
+/**
+ * @internal
+ */
 final class MinAnchorOption
 {
     public static function parse(?string $raw): ?AnchorOutcome

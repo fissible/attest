@@ -5,6 +5,9 @@ namespace Fissible\Attest\Chain;
 
 use Fissible\Attest\Envelope\SignedEnvelope;
 
+/**
+ * @api
+ */
 interface ChainStore
 {
     /**

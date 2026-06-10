@@ -6,6 +6,9 @@ namespace Fissible\Attest\Cli\Output;
 use Fissible\Attest\Verification\VerificationResult;
 use Symfony\Component\Console\Output\OutputInterface;
 
+/**
+ * @internal
+ */
 final class HumanResultEmitter implements ResultEmitter
 {
     public function emit(string $command, VerificationResult $result, int $exitCode, OutputInterface $output): void

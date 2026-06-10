@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Fissible\Attest\Chain;
 
+/**
+ * @internal
+ */
 final class PathSafety
 {
     public static function ensureDirectoryExists(string $dir): void

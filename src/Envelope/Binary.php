@@ -12,6 +12,7 @@ use ParagonIE\ConstantTime\Base64;
  *
  * Hard cap: 64KB raw. Larger blobs must be stored externally and referenced
  * by URL + sha256 in the payload.
+ * @api
  */
 final readonly class Binary
 {

@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Fissible\Attest\Verification;
 
+/**
+ * @api
+ */
 final readonly class ChainStats
 {
     public function __construct(

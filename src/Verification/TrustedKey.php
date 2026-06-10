@@ -5,6 +5,9 @@ namespace Fissible\Attest\Verification;
 
 use Fissible\Attest\Signing\Fingerprint;
 
+/**
+ * @api
+ */
 final readonly class TrustedKey
 {
     public string $fingerprint;

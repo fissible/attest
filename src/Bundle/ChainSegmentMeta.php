@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Fissible\Attest\Bundle;
 
+/**
+ * @api
+ */
 final readonly class ChainSegmentMeta
 {
     public function __construct(

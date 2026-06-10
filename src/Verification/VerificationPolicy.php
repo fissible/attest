@@ -5,6 +5,9 @@ namespace Fissible\Attest\Verification;
 
 use Fissible\Attest\Anchor\AnchorOutcome;
 
+/**
+ * @api
+ */
 final readonly class VerificationPolicy
 {
     public function __construct(

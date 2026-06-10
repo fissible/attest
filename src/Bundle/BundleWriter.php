@@ -5,6 +5,9 @@ namespace Fissible\Attest\Bundle;
 
 use Fissible\Attest\Chain\PathSafety;
 
+/**
+ * @internal
+ */
 final class BundleWriter
 {
     private \ZipArchive $zip;

@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Fissible\Attest\Bundle;
 
+/**
+ * @internal
+ */
 final class BundleConstants
 {
     public const FORMAT = 'fissible.attest.bundle/v1';

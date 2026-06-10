@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Fissible\Attest\Verification;
 
+/**
+ * @api
+ */
 final readonly class Warning
 {
     public const ANCHOR_OVER_RECOMPUTED_BYTES = 'anchor_over_recomputed_bytes';

@@ -7,6 +7,9 @@ use Fissible\Attest\Headers\BitcoinCoreRpcHeaderProvider;
 use Fissible\Attest\Headers\EsploraHeaderProvider;
 use Fissible\Attest\Headers\HeaderProviderSet;
 
+/**
+ * @internal
+ */
 final class HeaderProviderFactory
 {
     public static function build(

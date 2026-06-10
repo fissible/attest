@@ -14,6 +14,7 @@ namespace Fissible\Attest\Canonical;
  *  - Invalid UTF-8 rejected.
  *
  * Not a general-purpose JSON library — narrowly scoped to attest's needs.
+ * @api
  */
 final class JcsEncoder
 {

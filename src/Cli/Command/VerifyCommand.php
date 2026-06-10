@@ -22,6 +22,9 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
 #[AsCommand(name: 'verify', description: 'Verify a chain segment against trusted keys and policy.')]
+/**
+ * @internal
+ */
 final class VerifyCommand extends Command
 {
     /** @var (callable(?string, ?string, ?string): HeaderProviderSet)|null */

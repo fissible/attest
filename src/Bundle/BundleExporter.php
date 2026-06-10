@@ -11,6 +11,9 @@ use Fissible\Attest\Signing\Fingerprint;
 use Fissible\Attest\Verification\Warning;
 use ParagonIE\ConstantTime\Base64;
 
+/**
+ * @api
+ */
 final class BundleExporter
 {
     /** @var list<array{chainId:string, fromSeq:int, toSeq:int}> */

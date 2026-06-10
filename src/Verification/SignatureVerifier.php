@@ -6,6 +6,9 @@ namespace Fissible\Attest\Verification;
 use Fissible\Attest\Envelope\SignedEnvelope;
 use Fissible\Attest\Signing\SignatureVerification;
 
+/**
+ * @api
+ */
 final class SignatureVerifier
 {
     /** @var array<string, list<TrustedKey>> */

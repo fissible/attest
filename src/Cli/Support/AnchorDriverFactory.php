@@ -8,6 +8,9 @@ use Fissible\Attest\Anchor\NullDriver;
 use Fissible\Attest\Anchor\OpenTimestamps\OpenTimestampsCalendarClient;
 use Fissible\Attest\Anchor\OpenTimestampsDriver;
 
+/**
+ * @internal
+ */
 final class AnchorDriverFactory
 {
     /**

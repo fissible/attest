@@ -6,6 +6,7 @@ namespace Fissible\Attest\Signing;
 /**
  * Ed25519 key material. Secret key is 64 bytes (libsodium concatenates seed +
  * public key for signing efficiency). Public key is 32 bytes.
+ * @api
  */
 final readonly class KeyPair
 {

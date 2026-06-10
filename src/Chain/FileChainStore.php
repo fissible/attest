@@ -6,6 +6,9 @@ namespace Fissible\Attest\Chain;
 use Fissible\Attest\Envelope\EnvelopeCodec;
 use Fissible\Attest\Envelope\SignedEnvelope;
 
+/**
+ * @api
+ */
 final class FileChainStore implements ChainStore, RawChainStore
 {
     private readonly PathMapper $mapper;

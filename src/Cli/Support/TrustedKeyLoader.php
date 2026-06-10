@@ -6,6 +6,9 @@ namespace Fissible\Attest\Cli\Support;
 use Fissible\Attest\Verification\TrustedKey;
 use ParagonIE\ConstantTime\Base64;
 
+/**
+ * @internal
+ */
 final class TrustedKeyLoader
 {
     /**

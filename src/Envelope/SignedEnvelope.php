@@ -20,6 +20,7 @@ use ParagonIE\ConstantTime\Base64;
  * sign() time and at EnvelopeCodec::decodeSigned() entry. The payload-only
  * cap in PayloadValidator is a lower sanity ceiling that leaves room for
  * envelope-frame overhead (timestamps, key_id, sig, prev_hash, etc.).
+ * @api
  */
 final readonly class SignedEnvelope
 {

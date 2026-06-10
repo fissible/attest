@@ -20,6 +20,9 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
 #[AsCommand(name: 'upgrade', description: 'Upgrade pending anchor receipts.')]
+/**
+ * @internal
+ */
 final class UpgradeCommand extends Command
 {
     /** @var (callable(): OpenTimestampsCalendarClient)|null */

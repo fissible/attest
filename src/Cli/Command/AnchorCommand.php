@@ -19,6 +19,9 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
 #[AsCommand(name: 'anchor', description: 'Anchor a chain segment to an external timestamp service.')]
+/**
+ * @internal
+ */
 final class AnchorCommand extends Command
 {
     /** @var (callable(): OpenTimestampsCalendarClient)|null */

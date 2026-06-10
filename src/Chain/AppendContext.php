@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Fissible\Attest\Chain;
 
+/**
+ * @api
+ */
 final readonly class AppendContext
 {
     public function __construct(

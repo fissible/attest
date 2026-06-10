@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Fissible\Attest\Anchor;
 
+/**
+ * @api
+ */
 enum AnchorOutcome: string
 {
     case LOCAL_ONLY = 'local_only';

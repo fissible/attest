@@ -13,6 +13,7 @@ use Fissible\Attest\Headers\HeaderProviderSet;
 /**
  * Spec §6 facade: a one-shot static entry that mirrors the documented API.
  * Operationally it just wires Verifier from the named arguments.
+ * @api
  */
 final class StaticVerifier
 {

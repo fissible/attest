@@ -25,6 +25,9 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
 #[AsCommand(name: 'bundle:verify', description: 'Verify a bundle against trusted keys and policy.')]
+/**
+ * @internal
+ */
 final class BundleVerifyCommand extends Command
 {
     protected function configure(): void

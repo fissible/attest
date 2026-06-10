@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Fissible\Attest\Bundle;
 
+/**
+ * @internal
+ */
 final class BundleEntryPath
 {
     public static function validate(string $path): void

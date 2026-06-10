@@ -17,6 +17,7 @@ use Fissible\Attest\Envelope\SignedEnvelope;
  * Proof envelopes are NOT exposed via readRange()/readRawRange() — they must
  * be fed to Verifier through the detached-anchor constructor channel
  * (Task 3.6 and BundleReader::readProofEnvelopes()).
+ * @internal
  */
 final class BundleStore implements ChainStore, RawChainStore
 {

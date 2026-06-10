@@ -10,6 +10,9 @@ use Fissible\Attest\Cli\Command\UpgradeCommand;
 use Fissible\Attest\Cli\Command\VerifyCommand;
 use Symfony\Component\Console\Application;
 
+/**
+ * @internal
+ */
 final class AttestCli
 {
     public function run(): int

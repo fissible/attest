@@ -319,6 +319,22 @@ writers.
 supply trusted public keys via `--trusted-key <path>` or `--trusted-key-file <path>` at
 verification time.
 
+## Stability & Versioning
+
+From v1.0.0, `fissible/attest` follows semantic versioning. The supported public API is the set
+of classes marked `@api`; anything marked `@internal` (or unmarked) is implementation detail and
+may change in any release. The on-disk and interchange **formats** — canonical envelope JSON, the
+`{"$binary": …}` sentinel, the `fissible.attest.bundle/v1` bundle, and the `attest.cli.*.v1` JSON
+schemas — are frozen within 1.x (additions are additive; removals or renames require a
+format-version bump). The **CLI contract** (commands, options, exit codes, `--json` schemas) is
+stable even though the PHP classes under `src/Cli/` are internal.
+
+**Anchoring is experimental in 1.x.** The OpenTimestamps/Bitcoin anchoring subsystem
+(`src/Anchor`, `src/Headers`, `src/Merkle`) is usable and tested, but its PHP API may change in a
+minor release; it graduates to stable after live-network validation.
+
+See [`STABILITY.md`](STABILITY.md) for the full surface list and policy.
+
 ## Documentation
 
 Full API reference: coming with v1.0.

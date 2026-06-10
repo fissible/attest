@@ -9,6 +9,7 @@ use Fissible\Attest\Verification\VerificationResult;
  * Stable v1 JSON schema for `attest *` commands that produce a
  * VerificationResult. Field names are pinned; future versions may add
  * fields but must not change existing meanings without a format-version bump.
+ * @internal
  */
 final class JsonResultSchema
 {
