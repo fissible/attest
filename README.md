@@ -2,7 +2,7 @@
 
 > Tamper-evident signed evidence chains for application events, with optional public anchoring via OpenTimestamps.
 
-**Status:** Alpha — under active development. API will stabilize at v1.0.
+**Status:** Stable — v1.0+. The public API (classes marked `@api`) follows semantic versioning; see [`STABILITY.md`](STABILITY.md). Anchoring ships `@experimental` in 1.x.
 
 ---
 
@@ -292,7 +292,7 @@ vendor/bin/attest upgrade \
 ### JSON output schema
 
 All commands emit a stable JSON envelope on stdout when `--json` is passed. The four schema
-identifiers are pinned within the v0.4.x line; future additions will be additive (no removals
+identifiers are pinned within the 1.x line; future additions will be additive (no removals
 or renames within the same schema identifier):
 
 - `attest.cli.result.v1` — emitted by `verify` and `bundle:verify`
@@ -338,7 +338,7 @@ See [`STABILITY.md`](STABILITY.md) for the full surface list and policy.
 
 ## Documentation
 
-Full API reference: coming with v1.0.
+The supported surface is the set of `@api`-annotated classes in `src/` — see [`STABILITY.md`](STABILITY.md) for the full list and the wire/format stability guarantees.
 
 ## License
 
