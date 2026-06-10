@@ -6,6 +6,9 @@ namespace Fissible\Attest\Verification;
 use Fissible\Attest\Anchor\AnchorOutcome;
 use Fissible\Attest\Anchor\AnchorReceipt;
 
+/**
+ * @experimental
+ */
 final readonly class AnchorVerification
 {
     /**

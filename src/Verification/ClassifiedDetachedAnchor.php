@@ -5,6 +5,9 @@ namespace Fissible\Attest\Verification;
 
 use Fissible\Attest\Envelope\SignedEnvelope;
 
+/**
+ * @experimental
+ */
 final readonly class ClassifiedDetachedAnchor
 {
     public function __construct(

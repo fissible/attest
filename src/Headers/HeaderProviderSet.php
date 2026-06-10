@@ -5,6 +5,7 @@ namespace Fissible\Attest\Headers;
 
 /**
  * @implements \IteratorAggregate<int, BlockHeaderProvider>
+ * @experimental
  */
 final readonly class HeaderProviderSet implements \Countable, \IteratorAggregate
 {

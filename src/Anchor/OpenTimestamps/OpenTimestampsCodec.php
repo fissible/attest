@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Fissible\Attest\Anchor\OpenTimestamps;
 
+/**
+ * @experimental
+ */
 final class OpenTimestampsCodec
 {
     private const HEADER_MAGIC = "\x00OpenTimestamps\x00\x00Proof\x00\xbf\x89\xe2\xe8\x84\xe8\x92\x94";

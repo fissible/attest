@@ -5,6 +5,9 @@ namespace Fissible\Attest\Anchor;
 
 use Fissible\Attest\Merkle\MerkleTree;
 
+/**
+ * @experimental
+ */
 final readonly class AnchorTarget
 {
     public function __construct(

@@ -5,6 +5,9 @@ namespace Fissible\Attest\Anchor;
 
 use Fissible\Attest\Chain\ChainStore;
 
+/**
+ * @experimental
+ */
 final readonly class AnchorBatchSelector
 {
     public function __construct(public int $maxBatchSize = 500)

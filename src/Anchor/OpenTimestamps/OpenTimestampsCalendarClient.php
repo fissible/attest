@@ -10,6 +10,9 @@ use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestFactoryInterface;
 use Psr\Http\Message\StreamFactoryInterface;
 
+/**
+ * @experimental
+ */
 final readonly class OpenTimestampsCalendarClient
 {
     public const CONTENT_TYPE = 'application/vnd.opentimestamps.v1';

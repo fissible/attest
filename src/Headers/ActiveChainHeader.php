@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Fissible\Attest\Headers;
 
+/**
+ * @experimental
+ */
 final readonly class ActiveChainHeader
 {
     public function __construct(

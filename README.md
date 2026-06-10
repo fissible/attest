@@ -128,8 +128,9 @@ Anchoring adds an external **time and publication** signal. Chain ranges are bat
 6962-style Merkle roots, submitted to OpenTimestamps calendars, and later *upgraded* when a
 Bitcoin block-header attestation is available.
 
-Anchoring is alpha-quality in this release line. Treat the APIs as useful for integration
-testing and design feedback, not yet as a long-term stable surface.
+Anchoring is **experimental** in the 1.x line: the subsystem is usable and tested, but its PHP
+API may change in a minor release. It graduates to stable after live-network validation against
+real OpenTimestamps calendars and Bitcoin confirmations. See [`STABILITY.md`](STABILITY.md).
 
 ### Verification levels
 

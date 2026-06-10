@@ -17,6 +17,9 @@ use Fissible\Attest\Headers\TrustLevel;
 use Fissible\Attest\Verification\AnchorVerification;
 use Fissible\Attest\Verification\Warning;
 
+/**
+ * @experimental
+ */
 final class OpenTimestampsDriver implements AnchorDriver
 {
     public const NAME = 'opentimestamps';

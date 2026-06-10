@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Fissible\Attest\Anchor\OpenTimestamps;
 
+/**
+ * @experimental
+ */
 final readonly class OpenTimestampsAttestation
 {
     public const TAG_PENDING = "\x83\xdf\xe3\x0d\x2e\xf9\x0c\x8e";

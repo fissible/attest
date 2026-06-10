@@ -5,6 +5,9 @@ namespace Fissible\Attest\Anchor\OpenTimestamps;
 
 use Fissible\Attest\Anchor\ProofState;
 
+/**
+ * @experimental
+ */
 final readonly class OpenTimestampsProof
 {
     public function __construct(

@@ -8,6 +8,9 @@ use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestFactoryInterface;
 use Psr\Http\Message\StreamFactoryInterface;
 
+/**
+ * @experimental
+ */
 final class BitcoinCoreRpcHeaderProvider implements BlockHeaderProvider
 {
     private string $rpcUrl;

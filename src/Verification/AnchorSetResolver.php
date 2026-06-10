@@ -9,6 +9,9 @@ use Fissible\Attest\Anchor\InvalidAnchorEnvelope;
 use Fissible\Attest\Anchor\ProofState;
 use Fissible\Attest\Envelope\SignedEnvelope;
 
+/**
+ * @experimental
+ */
 final class AnchorSetResolver
 {
     /**

@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Fissible\Attest\Anchor;
 
+/**
+ * @experimental
+ */
 final readonly class AnchorClaim
 {
     public function __construct(

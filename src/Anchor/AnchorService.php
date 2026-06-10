@@ -11,6 +11,9 @@ use Fissible\Attest\Merkle\MerkleTree;
 use Fissible\Attest\Signing\Signer;
 use Fissible\Attest\Verification\Warning;
 
+/**
+ * @experimental
+ */
 final class AnchorService
 {
     /** @var list<Warning> */

@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Fissible\Attest\Headers;
 
+/**
+ * @experimental
+ */
 final readonly class HeaderLookupResult
 {
     private function __construct(

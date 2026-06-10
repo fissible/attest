@@ -6,6 +6,9 @@ namespace Fissible\Attest\Anchor;
 use Fissible\Attest\Envelope\SignedEnvelope;
 use ParagonIE\ConstantTime\Base64;
 
+/**
+ * @experimental
+ */
 final class AnchorEnvelope
 {
     public const SUBMITTED_TYPE = 'attest.anchor.submitted';

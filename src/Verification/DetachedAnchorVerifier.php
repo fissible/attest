@@ -5,6 +5,9 @@ namespace Fissible\Attest\Verification;
 
 use Fissible\Attest\Envelope\SignedEnvelope;
 
+/**
+ * @experimental
+ */
 final class DetachedAnchorVerifier
 {
     public function __construct(private readonly SignatureVerifier $signatures)

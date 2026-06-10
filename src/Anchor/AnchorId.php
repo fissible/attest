@@ -5,6 +5,9 @@ namespace Fissible\Attest\Anchor;
 
 use Fissible\Attest\Canonical\JcsEncoder;
 
+/**
+ * @experimental
+ */
 final class AnchorId
 {
     private const DOMAIN = 'attest-anchor-v1';

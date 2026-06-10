@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Fissible\Attest\Merkle;
 
+/**
+ * @experimental
+ */
 final class MerkleTree
 {
     public const ALGORITHM = 'sha256-rfc6962';

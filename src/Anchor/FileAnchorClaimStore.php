@@ -5,6 +5,9 @@ namespace Fissible\Attest\Anchor;
 
 use Fissible\Attest\Chain\PathMapper;
 
+/**
+ * @experimental
+ */
 final class FileAnchorClaimStore implements AnchorClaimStore
 {
     private readonly PathMapper $mapper;

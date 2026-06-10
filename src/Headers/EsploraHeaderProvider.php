@@ -7,6 +7,9 @@ use Psr\Http\Client\ClientExceptionInterface;
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestFactoryInterface;
 
+/**
+ * @experimental
+ */
 final class EsploraHeaderProvider implements BlockHeaderProvider
 {
     private string $baseUrl;
