@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- Allow Symfony 8 components for applications already on Symfony 8 while preserving PHP 8.2/8.3 compatibility through Symfony's own package requirements.
+
 ## [1.1.0] — 2026-06-13
 
 ### Added

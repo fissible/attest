@@ -156,13 +156,11 @@ final class OpenTimestampsDriver implements AnchorDriver
             $expectedMerkleRoot = bin2hex($path->message);
             $passes = [];
             $mismatches = [];
-            $unknowns = [];
             $activeByProvider = [];
 
             foreach ($headers as $provider) {
                 $lookup = $provider->getActiveChainHeaderByHeight($height);
                 if ($lookup->status !== HeaderLookupStatus::ACTIVE || $lookup->header === null) {
-                    $unknowns[] = $lookup->providerName;
                     $warnings[] = new Warning(
                         Warning::HEADER_PROVIDER_UNKNOWN,
                         'Header provider could not confirm OTS attestation height.',
@@ -232,10 +230,6 @@ final class OpenTimestampsDriver implements AnchorDriver
                 && ($bestPassing === null || $bestForPath->trustLevel->strength() > $bestPassing->trustLevel->strength())
             ) {
                 $bestPassing = $bestForPath;
-            }
-
-            if ($passes === [] && $mismatches === [] && $unknowns !== []) {
-                continue;
             }
         }
 

@@ -61,7 +61,7 @@ final class AnchorCommandTest extends TestCase
     private function makeTester(?callable $calendarClientFactory = null): CommandTester
     {
         $application = new Application();
-        $application->add(new AnchorCommand($calendarClientFactory));
+        $application->addCommand(new AnchorCommand($calendarClientFactory));
         $application->setAutoExit(false);
         $command = $application->find('anchor');
         return new CommandTester($command);

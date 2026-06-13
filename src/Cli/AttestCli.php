@@ -18,11 +18,11 @@ final class AttestCli
     public function run(): int
     {
         $app = new Application('attest', $this->version());
-        $app->add(new VerifyCommand());
-        $app->add(new BundleExportCommand());
-        $app->add(new BundleVerifyCommand());
-        $app->add(new AnchorCommand());
-        $app->add(new UpgradeCommand());
+        $app->addCommand(new VerifyCommand());
+        $app->addCommand(new BundleExportCommand());
+        $app->addCommand(new BundleVerifyCommand());
+        $app->addCommand(new AnchorCommand());
+        $app->addCommand(new UpgradeCommand());
         return $app->run();
     }
 

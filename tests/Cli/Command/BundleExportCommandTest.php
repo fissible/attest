@@ -46,7 +46,7 @@ final class BundleExportCommandTest extends TestCase
     private function makeTester(): CommandTester
     {
         $application = new Application();
-        $application->add(new BundleExportCommand());
+        $application->addCommand(new BundleExportCommand());
         $application->setAutoExit(false);
         $command = $application->find('bundle:export');
         return new CommandTester($command);

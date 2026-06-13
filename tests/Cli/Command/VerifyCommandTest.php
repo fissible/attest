@@ -53,7 +53,7 @@ final class VerifyCommandTest extends TestCase
     private function makeTester(?callable $headerProviderFactory = null): CommandTester
     {
         $application = new Application();
-        $application->add(new VerifyCommand($headerProviderFactory));
+        $application->addCommand(new VerifyCommand($headerProviderFactory));
         $application->setAutoExit(false);
         $command = $application->find('verify');
         return new CommandTester($command);

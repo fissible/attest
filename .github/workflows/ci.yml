@@ -42,3 +42,34 @@ jobs:
 
       - name: PHPUnit
         run: vendor/bin/phpunit --colors=always
+
+  symfony-compat:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: sodium, zip, json
+          coverage: none
+
+      - name: Validate composer.json
+        run: composer validate --strict
+
+      - name: Install with latest Symfony and PHPStan
+        run: composer update symfony/console symfony/uid phpstan/phpstan --with-dependencies --prefer-dist --no-progress
+
+      - name: Show Symfony versions
+        run: |
+          composer show symfony/console
+          composer show symfony/uid
+          composer show phpstan/phpstan
+
+      - name: PHPStan
+        run: vendor/bin/phpstan analyse --no-progress
+
+      - name: PHPUnit
+        run: vendor/bin/phpunit --colors=always

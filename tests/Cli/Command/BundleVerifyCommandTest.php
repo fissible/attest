@@ -41,7 +41,7 @@ final class BundleVerifyCommandTest extends TestCase
     private function makeTester(): CommandTester
     {
         $application = new Application();
-        $application->add(new BundleVerifyCommand());
+        $application->addCommand(new BundleVerifyCommand());
         $application->setAutoExit(false);
         $command = $application->find('bundle:verify');
         return new CommandTester($command);

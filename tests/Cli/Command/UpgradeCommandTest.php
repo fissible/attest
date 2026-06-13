@@ -61,7 +61,7 @@ final class UpgradeCommandTest extends TestCase
     private function makeTester(?callable $calendarClientFactory = null): CommandTester
     {
         $application = new Application();
-        $application->add(new UpgradeCommand($calendarClientFactory));
+        $application->addCommand(new UpgradeCommand($calendarClientFactory));
         $application->setAutoExit(false);
         $command = $application->find('upgrade');
         return new CommandTester($command);
