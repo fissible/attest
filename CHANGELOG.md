@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- Shipped reusable storage contract test traits under `Fissible\Attest\Testing\*` so adapters can test their `ChainStore` and `AnchorClaimStore` implementations against the canonical core contract instead of copy-pasting traits from `tests/`.
+
 ## [1.0.0] — 2026-06-09
 
 First stable release. From 1.0.0, `fissible/attest` follows semantic versioning — the supported public API is the set of classes marked `@api`. See [`STABILITY.md`](STABILITY.md).

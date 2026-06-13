@@ -111,6 +111,30 @@ Requires PHP `^8.2` with the bundled `sodium` extension (used for Ed25519 signin
 Using Laravel? See [`fissible/attest-laravel`](https://github.com/fissible/attest-laravel) for
 Eloquent storage, Artisan commands, queue-ready anchoring, and a JSONL importer.
 
+## Storage adapter contract tests
+
+Packages that provide their own storage backends should run the same contract tests as core.
+The traits are shipped in `src/Testing` so adapters can depend on one canonical definition:
+
+```php
+use Fissible\Attest\Chain\ChainStore;
+use Fissible\Attest\Testing\ChainStoreContractTests;
+use PHPUnit\Framework\TestCase;
+
+final class MyChainStoreTest extends TestCase
+{
+    use ChainStoreContractTests;
+
+    protected function makeStore(): ChainStore
+    {
+        return new MyChainStore();
+    }
+}
+```
+
+Anchoring adapters can likewise use `Fissible\Attest\Testing\AnchorClaimStoreContractTests`;
+that trait follows the anchoring subsystem's experimental stability in the 1.x line.
+
 ## How it works (a layer deeper)
 
 `fissible/attest` always starts with **local integrity**, and lets you optionally add a

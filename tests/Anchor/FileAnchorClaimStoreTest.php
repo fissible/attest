@@ -5,6 +5,7 @@ namespace Fissible\Attest\Tests\Anchor;
 
 use Fissible\Attest\Anchor\AnchorClaimStore;
 use Fissible\Attest\Anchor\FileAnchorClaimStore;
+use Fissible\Attest\Testing\AnchorClaimStoreContractTests;
 use PHPUnit\Framework\TestCase;
 
 final class FileAnchorClaimStoreTest extends TestCase
@@ -62,4 +63,3 @@ final class FileAnchorClaimStoreTest extends TestCase
         @rmdir($path);
     }
 }
-

@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Fissible\Attest\Tests\Chain;
+namespace Fissible\Attest\Testing;
 
 use Fissible\Attest\Chain\AppendContext;
 use Fissible\Attest\Chain\ChainStore;
@@ -14,7 +14,11 @@ use Symfony\Component\Uid\Ulid;
 
 /**
  * Shared contract tests for ChainStore implementations.
+ *
  * Concrete test classes use this trait and implement makeStore().
+ *
+ * @api
+ * @phpstan-require-extends \PHPUnit\Framework\TestCase
  */
 trait ChainStoreContractTests
 {

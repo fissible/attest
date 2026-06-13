@@ -1,11 +1,19 @@
 <?php
 declare(strict_types=1);
 
-namespace Fissible\Attest\Tests\Anchor;
+namespace Fissible\Attest\Testing;
 
 use Fissible\Attest\Anchor\AnchorClaim;
 use Fissible\Attest\Anchor\AnchorClaimStore;
 
+/**
+ * Shared contract tests for AnchorClaimStore implementations.
+ *
+ * Concrete test classes use this trait and implement store().
+ *
+ * @experimental
+ * @phpstan-require-extends \PHPUnit\Framework\TestCase
+ */
 trait AnchorClaimStoreContractTests
 {
     abstract protected function store(): AnchorClaimStore;
@@ -94,4 +102,3 @@ trait AnchorClaimStoreContractTests
         $this->assertSame('tenant:5', $expired[$oldAnchorId]->chainId);
     }
 }
-

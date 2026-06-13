@@ -5,6 +5,7 @@ namespace Fissible\Attest\Tests\Chain;
 
 use Fissible\Attest\Chain\ChainStore;
 use Fissible\Attest\Chain\FileChainStore;
+use Fissible\Attest\Testing\ChainStoreContractTests;
 use PHPUnit\Framework\TestCase;
 
 final class FileChainStoreAppendTest extends TestCase

@@ -40,6 +40,8 @@ may change or be removed in any release, including a patch. Do not depend on it.
 
 **Anchor** — `AnchorOutcome` (the enum is `@api` because it is named by `VerificationPolicy`)
 
+**Testing support** — `Testing\ChainStoreContractTests`
+
 ## Wire & format stability
 
 Independently of the PHP API, these on-disk / interchange formats are frozen within `1.x`
@@ -73,3 +75,5 @@ Consequences:
 - `AnchorOutcome` is `@api` (it is part of `VerificationPolicy`).
 - A stable `VerificationResult` may carry an experimental `AnchorVerification` via its
   `->anchorVerification` property. The presence and shape of that sub-object is not yet frozen.
+- `Testing\AnchorClaimStoreContractTests` follows the same experimental status as
+  `AnchorClaimStore`.
