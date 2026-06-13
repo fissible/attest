@@ -59,10 +59,10 @@ jobs:
       - name: Validate composer.json
         run: composer validate --strict
 
-      - name: Install with latest Symfony and PHPStan
-        run: composer update symfony/console symfony/uid phpstan/phpstan --with-dependencies --prefer-dist --no-progress
+      - name: Install latest dependencies
+        run: composer update --prefer-dist --no-progress
 
-      - name: Show Symfony versions
+      - name: Show compatibility versions
         run: |
           composer show symfony/console
           composer show symfony/uid
