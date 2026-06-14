@@ -11,7 +11,7 @@ use Fissible\Attest\Anchor\AnchorClaimStore;
  *
  * Concrete test classes use this trait and implement store().
  *
- * @experimental
+ * @api
  * @phpstan-require-extends \PHPUnit\Framework\TestCase
  */
 trait AnchorClaimStoreContractTests

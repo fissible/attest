@@ -5,8 +5,8 @@ document defines exactly what "stable" covers.
 
 ## `@api` — the supported surface
 
-Classes, interfaces, and enums marked `@api`, together with their public methods and properties,
-are the supported surface. Within the `1.x` line:
+Classes, interfaces, enums, and traits marked `@api`, together with their public methods and
+properties, are the supported surface. Within the `1.x` line:
 
 - No breaking changes to their signatures or documented behavior.
 - Additions are additive (new optional parameters, new methods) and will not break existing
@@ -19,7 +19,7 @@ Breaking changes to the `@api` surface require a major version bump.
 Anything marked `@internal` — **and anything not marked `@api`** — is implementation detail. It
 may change or be removed in any release, including a patch. Do not depend on it.
 
-## The `@api` surface (v1.0)
+## The `@api` surface
 
 **Write & storage** — `EvidenceChain`, `ChainStore`, `RawChainStore`, `FileChainStore`,
 `AppendContext`, `ChainLockUnavailable`, `ContextMismatch`
@@ -40,7 +40,7 @@ may change or be removed in any release, including a patch. Do not depend on it.
 
 **Anchor** — `AnchorOutcome` (the enum is `@api` because it is named by `VerificationPolicy`)
 
-**Testing support** — `Testing\ChainStoreContractTests`
+**Testing support** — `Testing\ChainStoreContractTests`, `Testing\AnchorClaimStoreContractTests`
 
 ## Wire & format stability
 
@@ -75,5 +75,5 @@ Consequences:
 - `AnchorOutcome` is `@api` (it is part of `VerificationPolicy`).
 - A stable `VerificationResult` may carry an experimental `AnchorVerification` via its
   `->anchorVerification` property. The presence and shape of that sub-object is not yet frozen.
-- `Testing\AnchorClaimStoreContractTests` follows the same experimental status as
-  `AnchorClaimStore`.
+- `Testing\AnchorClaimStoreContractTests` is `@api` test support for adapters, even though
+  `AnchorClaimStore` itself remains experimental.

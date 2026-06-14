@@ -2,7 +2,7 @@
 
 > Tamper-evident signed evidence chains for application events, with optional public anchoring via OpenTimestamps.
 
-**Status:** Stable — v1.0+. The public API (classes marked `@api`) follows semantic versioning; see [`STABILITY.md`](STABILITY.md). Anchoring ships `@experimental` in 1.x.
+**Status:** Stable — v1.0+. The public API (types marked `@api`) follows semantic versioning; see [`STABILITY.md`](STABILITY.md). Anchoring ships `@experimental` in 1.x.
 
 ---
 
@@ -132,8 +132,8 @@ final class MyChainStoreTest extends TestCase
 }
 ```
 
-Anchoring adapters can likewise use `Fissible\Attest\Testing\AnchorClaimStoreContractTests`;
-that trait follows the anchoring subsystem's experimental stability in the 1.x line.
+Anchoring adapters can likewise use `Fissible\Attest\Testing\AnchorClaimStoreContractTests`.
+Both shipped contract-test traits are stable `@api` test support.
 
 ## How it works (a layer deeper)
 
@@ -347,7 +347,7 @@ verification time.
 ## Stability & Versioning
 
 From v1.0.0, `fissible/attest` follows semantic versioning. The supported public API is the set
-of classes marked `@api`; anything marked `@internal` (or unmarked) is implementation detail and
+of types marked `@api`; anything marked `@internal` (or unmarked) is implementation detail and
 may change in any release. The on-disk and interchange **formats** — canonical envelope JSON, the
 `{"$binary": …}` sentinel, the `fissible.attest.bundle/v1` bundle, and the `attest.cli.*.v1` JSON
 schemas — are frozen within 1.x (additions are additive; removals or renames require a
@@ -362,7 +362,7 @@ See [`STABILITY.md`](STABILITY.md) for the full surface list and policy.
 
 ## Documentation
 
-The supported surface is the set of `@api`-annotated classes in `src/` — see [`STABILITY.md`](STABILITY.md) for the full list and the wire/format stability guarantees.
+The supported surface is the set of `@api`-annotated types in `src/` — see [`STABILITY.md`](STABILITY.md) for the full list and the wire/format stability guarantees.
 
 ## License
 
