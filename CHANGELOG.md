@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.1.2] — 2026-06-15
+
 ### Changed
 - Promoted `Testing\AnchorClaimStoreContractTests` to `@api` so storage adapters can rely on both shipped contract-test traits as stable test support.
 
