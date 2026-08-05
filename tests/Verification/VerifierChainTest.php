@@ -33,7 +33,7 @@ final class VerifierChainTest extends TestCase
         mkdir($this->root, 0o700, recursive: true);
         $this->store = new FileChainStore($this->root);
         $this->keyPair = KeyPair::generate();
-        $this->signer = new SodiumSigner($this->keyPair, 'station-prod');
+        $this->signer = new SodiumSigner($this->keyPair, 'app-prod');
     }
 
     protected function tearDown(): void
@@ -234,7 +234,7 @@ final class VerifierChainTest extends TestCase
 
         $result = (new Verifier(
             $store,
-            new SignatureVerifier([new TrustedKey($this->keyPair->publicKey, keyId: 'station-prod')]),
+            new SignatureVerifier([new TrustedKey($this->keyPair->publicKey, keyId: 'app-prod')]),
         ))->verifyChain('tenant:5', 1, 1);
 
         $this->assertSame(VerificationOutcome::VERIFIED, $result->outcome);
@@ -282,7 +282,7 @@ final class VerifierChainTest extends TestCase
     {
         return new Verifier(
             $this->store,
-            new SignatureVerifier([new TrustedKey($this->keyPair->publicKey, keyId: 'station-prod')]),
+            new SignatureVerifier([new TrustedKey($this->keyPair->publicKey, keyId: 'app-prod')]),
         );
     }
 }

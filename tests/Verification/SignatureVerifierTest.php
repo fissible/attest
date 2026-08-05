@@ -18,10 +18,10 @@ final class SignatureVerifierTest extends TestCase
     public function test_valid_trusted_signature_matches_by_key_id(): void
     {
         $keyPair = KeyPair::generate();
-        $signed = $this->signedEnvelope($keyPair, keyId: 'station-prod');
+        $signed = $this->signedEnvelope($keyPair, keyId: 'app-prod');
 
         $result = (new SignatureVerifier([
-            new TrustedKey($keyPair->publicKey, keyId: 'station-prod'),
+            new TrustedKey($keyPair->publicKey, keyId: 'app-prod'),
         ]))->verify($signed);
 
         $this->assertFalse($result->invalid);
@@ -51,7 +51,7 @@ final class SignatureVerifierTest extends TestCase
         $signed = $this->signedEnvelope(KeyPair::generate(), keyId: 'untrusted-key');
 
         $result = (new SignatureVerifier([
-            new TrustedKey(KeyPair::generate()->publicKey, keyId: 'station-prod'),
+            new TrustedKey(KeyPair::generate()->publicKey, keyId: 'app-prod'),
         ]))->verify($signed);
 
         $this->assertFalse($result->invalid);
@@ -63,7 +63,7 @@ final class SignatureVerifierTest extends TestCase
     public function test_tampered_payload_fails_signature_verification_when_key_is_known(): void
     {
         $keyPair = KeyPair::generate();
-        $signed = $this->signedEnvelope($keyPair, keyId: 'station-prod');
+        $signed = $this->signedEnvelope($keyPair, keyId: 'app-prod');
         $tampered = new SignedEnvelope(
             new EvidenceEnvelope(
                 id: $signed->envelope->id,
@@ -80,7 +80,7 @@ final class SignatureVerifierTest extends TestCase
         );
 
         $result = (new SignatureVerifier([
-            new TrustedKey($keyPair->publicKey, keyId: 'station-prod'),
+            new TrustedKey($keyPair->publicKey, keyId: 'app-prod'),
         ]))->verify($tampered);
 
         $this->assertTrue($result->invalid);
@@ -92,10 +92,10 @@ final class SignatureVerifierTest extends TestCase
     public function test_unknown_signature_algorithm_fails_explicitly(): void
     {
         $keyPair = KeyPair::generate();
-        $signed = $this->signedEnvelope($keyPair, keyId: 'station-prod', sigAlg: 'ed448');
+        $signed = $this->signedEnvelope($keyPair, keyId: 'app-prod', sigAlg: 'ed448');
 
         $result = (new SignatureVerifier([
-            new TrustedKey($keyPair->publicKey, keyId: 'station-prod'),
+            new TrustedKey($keyPair->publicKey, keyId: 'app-prod'),
         ]))->verify($signed);
 
         $this->assertTrue($result->invalid);

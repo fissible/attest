@@ -50,7 +50,7 @@ final class MinAnchorThresholdTest extends TestCase
         mkdir($this->root, 0o700, recursive: true);
         $this->store = new FileChainStore($this->root);
         $this->keyPair = KeyPair::generate();
-        $this->signer = new SodiumSigner($this->keyPair, 'station-prod');
+        $this->signer = new SodiumSigner($this->keyPair, 'app-prod');
     }
 
     protected function tearDown(): void
@@ -262,7 +262,7 @@ final class MinAnchorThresholdTest extends TestCase
     {
         return new Verifier(
             $this->store,
-            new SignatureVerifier([new TrustedKey($this->keyPair->publicKey, keyId: 'station-prod')]),
+            new SignatureVerifier([new TrustedKey($this->keyPair->publicKey, keyId: 'app-prod')]),
             new VerificationPolicy(minAnchorOutcome: $minimum),
             [new NullDriver(), $this->otsDriver()],
             $headers ?? new HeaderProviderSet(),

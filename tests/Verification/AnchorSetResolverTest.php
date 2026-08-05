@@ -21,7 +21,7 @@ final class AnchorSetResolverTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->signer = new SodiumSigner(KeyPair::generate(), 'station-prod');
+        $this->signer = new SodiumSigner(KeyPair::generate(), 'app-prod');
     }
 
     public function test_groups_anchor_envelopes_and_picks_strongest_state(): void
