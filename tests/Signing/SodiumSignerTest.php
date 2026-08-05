@@ -63,8 +63,8 @@ final class SodiumSignerTest extends TestCase
     public function test_signer_exposes_key_id(): void
     {
         $kp = KeyPair::generate();
-        $signer = new SodiumSigner($kp, keyId: 'station-prod-2026-01');
-        $this->assertSame('station-prod-2026-01', $signer->keyId());
+        $signer = new SodiumSigner($kp, keyId: 'app-prod-2026-01');
+        $this->assertSame('app-prod-2026-01', $signer->keyId());
     }
 
     public function test_signer_rejects_empty_key_id(): void

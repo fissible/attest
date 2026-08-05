@@ -67,7 +67,7 @@ use Fissible\Attest\Signing\SodiumSigner;
 
 // Your app's signing identity ("this entry really came from us").
 $keys   = KeyPair::generate();   // save these; the public key is needed to verify later
-$signer = new SodiumSigner($keys, keyId: 'station-prod-2026-01');
+$signer = new SodiumSigner($keys, keyId: 'app-prod-2026-01');
 
 // Where the chain is stored, and which chain we're writing to.
 $store = new FileChainStore(__DIR__ . '/storage/attest');
@@ -91,7 +91,7 @@ use Fissible\Attest\Verification\Verifier;
 $verifier = new Verifier(
     store: $store,
     signatures: new SignatureVerifier([
-        new TrustedKey($keys->publicKey, keyId: 'station-prod-2026-01'),
+        new TrustedKey($keys->publicKey, keyId: 'app-prod-2026-01'),
     ]),
 );
 
@@ -248,7 +248,7 @@ $factory = new HttpFactory();
 $verifier = new Verifier(
     store: $store,
     signatures: new SignatureVerifier([
-        new TrustedKey($rawEd25519PublicKey, keyId: 'station-prod-2026-01'),
+        new TrustedKey($rawEd25519PublicKey, keyId: 'app-prod-2026-01'),
     ]),
     policy: new VerificationPolicy(
         minAnchorOutcome: AnchorOutcome::BITCOIN_VERIFIED,
@@ -417,7 +417,7 @@ vendor/bin/attest <command> [options]
 vendor/bin/attest verify \
   --chain tenant:5 \
   --from 1 --to 1000 \
-  --trusted-key /etc/attest/keys/station-prod-2026-01.pub \
+  --trusted-key /etc/attest/keys/app-prod-2026-01.pub \
   --min-anchor bitcoin_verified \
   --json
 
@@ -430,7 +430,7 @@ vendor/bin/attest bundle:export \
 # Verify all chains in a bundle
 vendor/bin/attest bundle:verify \
   --bundle /tmp/export-20260605.attest.zip \
-  --trusted-key /etc/attest/keys/station-prod-2026-01.pub \
+  --trusted-key /etc/attest/keys/app-prod-2026-01.pub \
   --min-anchor remote_header_confirmed \
   --json
 
