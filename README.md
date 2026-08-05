@@ -47,6 +47,14 @@ workflows, and anywhere "prove this log wasn't edited" actually matters.
 > **What this is not:** this is not artifact/build provenance (Sigstore, SLSA). Those prove where
 > a binary came from. attest proves **what your application did, and when.**
 
+**The boundary, up front:** signing happens inside your application, with a key your application
+holds. So attest is tamper-evident against anyone who can reach the evidence store — a rogue DBA,
+SQL injection, an edited backup — but *not* against an attacker who has taken over the
+application itself and can therefore re-sign a rewritten history. Closing that gap takes external
+key custody, public anchoring, or both. See [What this does not
+prove](#what-this-does-not-prove) for the full table, and note that anchoring is experimental in
+`1.x`.
+
 ## The 30-second example
 
 Record something important when it happens:
@@ -108,6 +116,11 @@ composer require fissible/attest
 
 Requires PHP `^8.2` with the bundled `sodium` extension (used for Ed25519 signing).
 
+`ext-zip` is **optional**, required only for portable bundles (`bundle:export`,
+`bundle:verify`, and the `Bundle*` classes). Recording, verifying, and anchoring chains never
+touch it. Without it, opening a bundle for read or write throws `BundleSupportUnavailable` and
+the bundle CLI commands exit `1`.
+
 Using Laravel? See [`fissible/attest-laravel`](https://github.com/fissible/attest-laravel) for
 Eloquent storage, Artisan commands, queue-ready anchoring, and a JSONL importer.
 
@@ -168,6 +181,47 @@ attestation. The meaningful levels, weakest to strongest:
 | `upgraded_no_headers` | Calendar attestation present; block headers not checked. |
 | `remote_header_confirmed` | Confirmed via a remote explorer — the explorer is part of the trust path. |
 | `bitcoin_verified` | Confirmed against a Bitcoin block header you trust (e.g. your own node). |
+
+## What this does not prove
+
+Local integrity defeats **database-only** tampering. It does not defeat **application
+compromise**, and the difference is entirely about who holds the signing key.
+
+Signing happens in your application process, with a key your application can reach — in
+`fissible/attest-laravel`, an Ed25519 seed in app env (`ATTEST_SIGNING_KEY_SEED`). An attacker
+who reaches that key can rewrite the whole chain and re-sign every envelope. Verification then
+passes, because the chain really is internally consistent and really is signed by the key you
+told the verifier to trust. Nothing visibly breaks.
+
+| Attacker capability | Local integrity | + public anchoring |
+|---|---|---|
+| Edits or deletes stored rows (rogue DBA, SQLi, tampered backup) | detected | detected |
+| Holds the signing key (app RCE, leaked env, malicious insider with deploy access) | **not detected** | back-dating detected |
+| Operator colludes and rewrites the history from scratch | **not detected** | detected for anchored ranges |
+
+The second and third rows are addressed only by anchoring, which is **experimental** in `1.x`
+pending live-network validation. So the strongest claim the *stable* surface supports today is:
+
+> Tamper-evident against anyone who can reach the evidence store but not the signing key.
+
+That is a genuinely useful property — it covers the ordinary "someone edited the audit table"
+dispute — but it is narrower than "nobody can forge this."
+
+To extend the boundary:
+
+- **Move key custody out of the application.** An HSM/KMS or a separate signing service with its
+  own authorization means app-level RCE no longer yields the ability to re-sign history.
+- **Anchor.** A public time anchor is what turns "the operator rewrote everything" from
+  undetectable into detectable, because the rewritten chain cannot produce a Merkle root that
+  was already published. Anchoring is experimental in `1.x`; treat a `1.x` anchoring deployment
+  as validation, not as a settled interface.
+- **Replicate.** Shipping bundles to a party who does not trust you, on a schedule, bounds how
+  far back a rewrite can reach even without anchoring.
+
+Also worth stating plainly: attest proves what your application *recorded*, not that the record
+is true. A signed `contract.approved` envelope proves your application asserted that approval at
+that point in the chain and that the assertion has not been altered since. Whether the approval
+itself was legitimate is an application-level question.
 
 ## Full verifier example (anchored)
 
@@ -325,6 +379,8 @@ or renames within the same schema identifier):
 - `attest.cli.upgrade.v1` — emitted by `upgrade`
 
 ### Bundles
+
+Bundles are the one feature that needs `ext-zip`; see [Install](#install).
 
 Bundles are ZIP containers (extension `.attest.zip`) with the following layout:
 
