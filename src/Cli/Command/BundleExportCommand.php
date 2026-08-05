@@ -5,6 +5,7 @@ namespace Fissible\Attest\Cli\Command;
 
 use Fissible\Attest\Bundle\BundleExportException;
 use Fissible\Attest\Bundle\BundleExporter;
+use Fissible\Attest\Bundle\BundleSupportUnavailable;
 use Fissible\Attest\Chain\FileChainStore;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -110,6 +111,10 @@ final class BundleExportCommand extends Command
         // ── Write bundle ─────────────────────────────────────────────────────
         try {
             $exporter->writeTo($outPath);
+        } catch (BundleSupportUnavailable $e) {
+            // Environment error, not an export failure: exit 1, not 4.
+            $output->writeln('error: ' . $e->getMessage());
+            return 1;
         } catch (BundleExportException $e) {
             $output->writeln('error: ' . $e->getMessage());
             return 4;

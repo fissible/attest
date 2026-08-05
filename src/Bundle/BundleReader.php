@@ -20,6 +20,9 @@ final class BundleReader
 
     public static function open(string $path): self
     {
+        if (! extension_loaded('zip')) {
+            throw BundleSupportUnavailable::missingZipExtension('read');
+        }
         $self = new self();
         $self->zip = new \ZipArchive();
         $opened = $self->zip->open($path, \ZipArchive::RDONLY);

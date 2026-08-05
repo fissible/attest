@@ -5,6 +5,7 @@ namespace Fissible\Attest\Cli\Command;
 
 use Fissible\Attest\Bundle\BundleReader;
 use Fissible\Attest\Bundle\BundleStore;
+use Fissible\Attest\Bundle\BundleSupportUnavailable;
 use Fissible\Attest\Bundle\InvalidBundle;
 use Fissible\Attest\Cli\Output\HumanResultEmitter;
 use Fissible\Attest\Cli\Output\JsonResultEmitter;
@@ -92,6 +93,10 @@ final class BundleVerifyCommand extends Command
         // ── Open bundle ──────────────────────────────────────────────────────
         try {
             $reader = BundleReader::open($bundlePath);
+        } catch (BundleSupportUnavailable $e) {
+            // Nothing was read, so nothing was found invalid: exit 1, not 4.
+            $output->writeln('error: ' . $e->getMessage());
+            return 1;
         } catch (InvalidBundle $e) {
             $output->writeln('error: ' . $e->getMessage());
             return 4;
