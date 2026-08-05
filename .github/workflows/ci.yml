@@ -73,3 +73,21 @@ jobs:
 
       - name: PHPUnit
         run: vendor/bin/phpunit --colors=always
+
+  # Single stable required status check for branch protection. Requiring the
+  # matrix jobs directly means their names embed the matrix values, so editing
+  # the matrix silently drops required checks without failing anything — and
+  # any job added later is unprotected until someone remembers to list it.
+  validate:
+    name: validate
+    runs-on: ubuntu-latest
+    needs: [test, symfony-compat]
+    if: always()
+    steps:
+      - name: Require every upstream job to have succeeded
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')
+        run: |
+          echo "One or more CI jobs did not succeed: ${{ join(needs.*.result, ', ') }}"
+          exit 1
+
+      - run: echo "All CI jobs succeeded."
