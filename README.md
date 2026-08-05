@@ -277,6 +277,87 @@ service is part of the trust path.
 OpenTimestamps calendars receive nonced commitments rather than raw chain roots. That protects
 the committed content, but submission timing and IP metadata can still link activity.
 
+## Handing evidence to someone else
+
+A bundle is the rich answer — one file carrying a manifest, the chain segment, anchor proof
+envelopes, OTS receipts, and claimed keys. It needs `ext-zip`.
+
+You do not need a bundle to hand over verifiable evidence. A chain is already a flat file of
+signed canonical envelopes, one per line, and verification only ever reads those bytes.
+
+**Ship the store directory.** With `FileChainStore`, evidence is plain JSONL under the store
+root. Copy the root (or just its `chains/` directory) and the recipient verifies it as-is:
+
+```bash
+rsync -a storage/attest/ /handoff/attest/
+
+# On the recipient's machine — no bundle, no zip:
+vendor/bin/attest verify \
+    --storage-root /handoff/attest \
+    --chain tenant:5 \
+    --trusted-key prod-2026-01=<base64-public-key>
+```
+
+Same guarantees as any other verification: edit a byte and the chain breaks at the entry that
+was touched, reported as `brokenAtSeq`.
+
+One thing a hash chain cannot tell you on its own: **a truncated copy still verifies.** Drop the
+last few entries and what remains is a shorter, internally consistent, correctly signed chain —
+`isVerified()` is `true`. So completeness is established out of band, from the range the sender
+stated: check `chainStats->envelopeCount` and the tail sequence against what you were told to
+expect, or verify with an explicit `toSeq`. This is exactly what a bundle manifest carries for
+you, and why one exists.
+
+**Read the raw bytes yourself.** Stores implementing `RawChainStore` expose the stored canonical
+bytes directly, which is the supported way to feed evidence into your own transport:
+
+```php
+use Fissible\Attest\Chain\FileChainStore;
+
+$store = new FileChainStore(__DIR__ . '/storage/attest');
+
+foreach ($store->readRawRange('tenant:5', fromSeq: 1, toSeq: 1000) as $raw) {
+    // Exactly SignedEnvelope::signedCanonicalBytes(): no trailing newline,
+    // no framing. Write it, post it, or stream it wherever you like.
+    fwrite($out, $raw . "\n");
+}
+```
+
+To verify without the CLI, hand any `ChainStore` to `StaticVerifier`:
+
+```php
+use Fissible\Attest\Verification\StaticVerifier;
+use Fissible\Attest\Verification\TrustedKey;
+
+$result = StaticVerifier::verifyChain(
+    store: new FileChainStore('/handoff/attest'),
+    chainId: 'tenant:5',
+    trustedKeys: [new TrustedKey($publicKey, keyId: 'prod-2026-01')],
+);
+```
+
+**What you give up versus a bundle**, and why bundles still exist:
+
+| | Store directory / raw JSONL | Bundle |
+|---|---|---|
+| Chain integrity + signatures | yes | yes |
+| Needs `ext-zip` | no | yes |
+| States its own range, issuer, and note | no — out-of-band | manifest |
+| Carries anchor proof envelopes and OTS receipts | no | yes |
+| Carries claimed public keys | no | yes (informational only) |
+| Single file | no | yes |
+
+Anchored verification still works over a directory handoff, but you must convey the anchor proof
+envelopes yourself and pass them to `Verifier` as `detachedAnchorEnvelopes` — a bundle is simply
+the packaging that keeps them together.
+
+One caveat if you are assembling a handoff by hand rather than copying a store: the filename
+convention inside `chains/` is an implementation detail of `FileChainStore`, not a frozen format
+(unlike the bundle layout, which *is* frozen as `fissible.attest.bundle/v1`). Copy the directory
+rather than constructing filenames, and use bundles when you need to build a handoff from a
+store that is not file-backed — for example the Eloquent store in
+[`fissible/attest-laravel`](https://github.com/fissible/attest-laravel).
+
 ## Payload Types
 
 Payloads passed to `record()` accept JSON-native scalars (string, int, bool, null), arrays,

@@ -18,7 +18,8 @@ final class BundleSupportUnavailable extends \RuntimeException
     {
         return new self(
             "Cannot $operation an attest bundle: the PHP zip extension (ext-zip) is not loaded. "
-            . 'Install/enable ext-zip, or use the chain APIs directly if you do not need bundles.'
+            . 'Install/enable ext-zip, or hand over the store directory instead — see '
+            . '"Handing evidence to someone else" in the README.'
         );
     }
 }
