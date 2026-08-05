@@ -10,7 +10,6 @@
     "require": {
         "php": "^8.2",
         "ext-sodium": "*",
-        "ext-zip": "*",
         "ext-json": "*",
         "paragonie/constant_time_encoding": "^2.6 || ^3.0",
         "psr/http-client": "^1.0",
@@ -21,6 +20,7 @@
     },
     "bin": ["bin/attest"],
     "require-dev": {
+        "ext-zip": "*",
         "guzzlehttp/guzzle": "^7.7",
         "guzzlehttp/psr7": "^2.6",
         "phpunit/phpunit": "^11.0",
@@ -36,6 +36,7 @@
         "sort-packages": true
     },
     "suggest": {
+        "ext-zip": "Required to export or verify portable .attest.zip bundles; nothing else uses it.",
         "guzzlehttp/guzzle": "PSR-18 HTTP client suitable for OpenTimestampsCalendarClient."
     },
     "minimum-stability": "stable"

@@ -17,6 +17,9 @@ final class BundleWriter
 
     public static function open(string $finalPath): self
     {
+        if (! extension_loaded('zip')) {
+            throw BundleSupportUnavailable::missingZipExtension('write');
+        }
         $self = new self();
         PathSafety::ensureWritableParent($finalPath);
         $self->finalPath = $finalPath;

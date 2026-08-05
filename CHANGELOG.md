@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Added
+- **A "What this does not prove" threat-model section in the README** ([#9](https://github.com/fissible/attest/issues/9)). The README documented what attest proves but never its boundary, and the most important one was left implicit: local integrity defeats database-only tampering, not application compromise. Signing happens in the application with a key the application holds, so an attacker who takes over the application can rewrite the chain and re-sign it, and verification still passes. Anchoring is what addresses that — and anchoring is experimental in `1.x` — so the strongest claim the stable surface supports is "tamper-evident against anyone who can reach the evidence store but not the signing key." The boundary is now restated in "Why is that valuable?" too, so the framing near the top is not stronger than the detail further down.
+- `Bundle\BundleSupportUnavailable`, thrown when a bundle is opened for read or write without ext-zip. Deliberately not an `InvalidBundle`: nothing was read, so nothing was found invalid, and `bundle:verify` exits `1` (environment error) rather than `4` (failed verification).
+
+### Changed
+- **`ext-zip` moved from `require` to `suggest`.** It is used only by bundle export and read; recording, verifying, and anchoring never touch it. As a hard require it blocked installation for every consumer that never exports a bundle. `ext-sodium` remains a genuine require — every append signs.
+
 ## [1.1.2] — 2026-06-15
 
 ### Changed

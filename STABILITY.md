@@ -36,7 +36,12 @@ may change or be removed in any release, including a patch. Do not depend on it.
 `SignatureVerificationResult`, `KeyMatch`
 
 **Bundle** — `BundleExporter`, `BundleReader`, `BundleManifest`, `ChainSegmentMeta`,
-`ClaimedKeyMeta`, `BundleExportException`, `InvalidBundle`, `InvalidBundleManifest`
+`ClaimedKeyMeta`, `BundleExportException`, `InvalidBundle`, `InvalidBundleManifest`,
+`BundleSupportUnavailable`
+
+Bundles are the only feature that needs `ext-zip`, which is a `suggest` rather than a `require`.
+Opening a bundle for read or write without it throws `BundleSupportUnavailable` — deliberately
+not `InvalidBundle`, so an environment gap is never reported as a verification failure.
 
 **Anchor** — `AnchorOutcome` (the enum is `@api` because it is named by `VerificationPolicy`)
 
