@@ -459,6 +459,29 @@ or renames within the same schema identifier):
 - `attest.cli.anchor.v1` — emitted by `anchor`
 - `attest.cli.upgrade.v1` — emitted by `upgrade`
 
+**`verified` and `completeness.asserted` are two different facts, and a consumer should render them
+separately.** `attest.cli.result.v1` carries a constant `completeness` block:
+
+```json
+{
+  "verified": true,
+  "completeness": {
+    "asserted": false,
+    "statement": "Attests the integrity of the entries in the verified range, not that they are all events. Anything that bypassed instrumentation, or falling outside the verified range, is invisible to this record."
+  }
+}
+```
+
+> **Added in 1.3.0.** Output from earlier versions carries the same `format_version` without this block, so
+> treat `completeness` as optional when reading results you did not produce.
+
+A chain proves the entries it covers are intact and in order. It cannot prove they are every event that
+occurred, for two independent reasons: anything that bypassed the writer never reached the chain to be
+signed, and both `verify` (via `--from`/`--to`) and `bundle:verify` (which covers only the range the exporter
+chose) can be scoped to part of a chain. The block is constant rather than computed — attest cannot detect a
+bypassed path, and a value that varied would imply it had checked. It does not vary per command either, since
+scoping applies to both.
+
 ### Bundles
 
 Bundles are the one feature that needs `ext-zip`; see [Install](#install).

@@ -8,6 +8,7 @@ use Fissible\Attest\Anchor\AnchorReceipt;
 use Fissible\Attest\Anchor\AnchorTarget;
 use Fissible\Attest\Anchor\ProofState;
 use Fissible\Attest\Cli\Output\JsonResultEmitter;
+use Fissible\Attest\Cli\Output\JsonResultSchema;
 use Fissible\Attest\Verification\AnchorVerification;
 use Fissible\Attest\Verification\ChainStats;
 use Fissible\Attest\Verification\VerificationOutcome;
@@ -17,6 +18,76 @@ use Symfony\Component\Console\Output\BufferedOutput;
 
 final class JsonResultEmitterTest extends TestCase
 {
+    /** @return array<string,mixed> */
+    private function verificationPayload(VerificationOutcome $outcome): array
+    {
+        $output = new BufferedOutput();
+
+        (new JsonResultEmitter())->emit('verify', new VerificationResult(
+            outcome: $outcome,
+            chainStats: new ChainStats('tenant:5', 1, 5, 5, 5, 0, 0),
+            warnings: [],
+            signatureResults: [],
+            anchorVerification: null,
+        ), 0, $output);
+
+        return json_decode($output->fetch(), true);
+    }
+
+    /**
+     * A verified chain proves the entries it covers are intact. It does not prove they are all the events
+     * that happened, and a consumer reading only `verified: true` has no way to learn that from the
+     * output. The caveat travels with the data because that is where the wrong inference forms.
+     */
+    public function test_verification_payload_declares_that_completeness_is_not_asserted(): void
+    {
+        $payload = $this->verificationPayload(VerificationOutcome::VERIFIED);
+
+        self::assertTrue($payload['verified'], 'Precondition: this is the passing case.');
+        self::assertFalse(
+            $payload['completeness']['asserted'],
+            'Integrity verifying must never read as completeness being established.',
+        );
+        self::assertIsString($payload['completeness']['statement']);
+        self::assertSame(
+            JsonResultSchema::COMPLETENESS_STATEMENT,
+            $payload['completeness']['statement'],
+            'The emitted text must be the constant, so README and CHANGELOG have one anchor to match.',
+        );
+        self::assertSame(
+            'attest.cli.result.v1',
+            $payload['format_version'],
+            'An additive field must not bump the format version; STABILITY.md permits additions within 1.x.',
+        );
+    }
+
+    /**
+     * Two non-assertions, not one. Instrumentation bypass is the obvious one; range scoping is the quiet
+     * one — `verify` takes --from/--to and `bundle:verify` covers only the range the exporter chose, so a
+     * recipient of a deliberately truncated bundle would otherwise get `verified: true` beside prose that
+     * named bypass as the only gap.
+     */
+    public function test_completeness_statement_names_both_range_scoping_and_bypass(): void
+    {
+        $statement = $this->verificationPayload(VerificationOutcome::VERIFIED)['completeness']['statement'];
+
+        self::assertStringContainsString('verified range', $statement);
+        self::assertStringContainsString('bypassed instrumentation', $statement);
+    }
+
+    /**
+     * The block is constant, not computed. attest cannot detect what bypassed instrumentation, so a value
+     * that varied with the outcome would imply it had checked something it never checks.
+     */
+    public function test_completeness_caveat_does_not_vary_with_the_verification_outcome(): void
+    {
+        $verified = $this->verificationPayload(VerificationOutcome::VERIFIED)['completeness'];
+        $broken = $this->verificationPayload(VerificationOutcome::INVALID_CHAIN)['completeness'];
+
+        self::assertSame($verified, $broken);
+        self::assertFalse($verified['asserted']);
+    }
+
     public function test_emits_v1_schema_for_verified_result(): void
     {
         $result = new VerificationResult(
