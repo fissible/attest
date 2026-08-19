@@ -9,12 +9,17 @@
   `false` and is the machine-readable counterpart to `verified`, so a consumer can render "integrity
   verified" and "completeness not asserted" as separate facts without parsing prose.
 
-  A chain attests the integrity of the entries written to it; anything that bypassed instrumentation never
-  reached the chain to be signed. The documentation said so and the JSON did not, which left an automated
-  consumer reading `verified: true` with no way to learn it.
+  **Two independent non-assertions, not one.** Anything that bypassed instrumentation never reached the chain
+  to be signed; and both `verify` (via `--from`/`--to`) and `bundle:verify` (which covers only the range the
+  exporter chose) can be scoped to part of a chain, so a recipient of a deliberately truncated bundle would
+  otherwise read `verified: true` beside prose naming bypass as the only gap. The statement names both.
 
   The block is constant rather than computed, deliberately — attest cannot detect a bypassed path, and a
-  value that varied with the outcome would imply it had checked.
+  value that varied with the outcome would imply it had checked. It does not vary per command either, since
+  scoping applies to both and a command-specific statement would read as though one were exempt.
+
+  The text lives in `JsonResultSchema::COMPLETENESS_STATEMENT` with a test pinning the emitted value against
+  it, so the code and this changelog cannot drift apart silently.
 
   Additive: `format_version` remains `attest.cli.result.v1`, per `STABILITY.md`'s rule that additions within
   `1.x` do not bump the schema identifier. No change to verify semantics, exit codes, or what is recorded.

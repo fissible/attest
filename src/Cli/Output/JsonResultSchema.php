@@ -15,6 +15,14 @@ final class JsonResultSchema
 {
     public const FORMAT = 'attest.cli.result.v1';
 
+    /**
+     * The single source of this text. Duplicated prose in the README and CHANGELOG drifts silently;
+     * a test pins this constant against the documented wording so the anchor is one place.
+     */
+    public const COMPLETENESS_STATEMENT = 'Attests the integrity of the entries in the verified range, '
+        .'not that they are all events. Anything that bypassed instrumentation, or falling outside the '
+        .'verified range, is invisible to this record.';
+
     /** @return array<string,mixed> */
     public static function fromVerification(string $command, VerificationResult $result, int $exitCode): array
     {
@@ -49,12 +57,14 @@ final class JsonResultSchema
      * What a passing verification does not establish.
      *
      * A chain attests the integrity of the entries written to it. It cannot attest that those entries are
-     * every event that occurred, because anything that bypassed instrumentation never reached the chain to
-     * be signed. Documentation states this; the JSON did not, and an automated consumer reading
-     * `verified: true` has no other place to learn it.
+     * every event that occurred, for two independent reasons: anything that bypassed instrumentation never
+     * reached the chain to be signed, and both `verify` (via --from/--to) and `bundle:verify` (via whatever
+     * range the exporter chose) can be scoped to part of a chain. Documentation states the first; the JSON
+     * stated neither, and an automated consumer reading `verified: true` has no other place to learn them.
      *
      * Constant rather than computed, deliberately: attest cannot detect a bypassed path, and a value that
-     * varied with the outcome would imply it had looked.
+     * varied with the outcome would imply it had checked. It does not vary per command either — scoping
+     * applies to both, so a command-specific statement would read as though one of them were exempt.
      *
      * @return array{asserted:bool,statement:string}
      */
@@ -62,8 +72,7 @@ final class JsonResultSchema
     {
         return [
             'asserted' => false,
-            'statement' => 'Attests the integrity of recorded entries, not that they are all events. '
-                .'Anything that bypassed instrumentation is invisible to this record.',
+            'statement' => self::COMPLETENESS_STATEMENT,
         ];
     }
 
