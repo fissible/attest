@@ -24,6 +24,12 @@
   Additive: `format_version` remains `attest.cli.result.v1`, per `STABILITY.md`'s rule that additions within
   `1.x` do not bump the schema identifier. No change to verify semantics, exit codes, or what is recorded.
 
+- Human-readable `verify` and `bundle:verify` output prints the same completeness caveat
+  ([#15](https://github.com/fissible/attest/issues/15)): a `completeness: not asserted — …` line directly
+  under the outcome line, sourced from `JsonResultSchema::COMPLETENESS_STATEMENT` so the two surfaces cannot
+  drift apart. Printed on every run and every outcome — a caveat that appeared only on passing runs would
+  vary with the outcome, implying attest had checked something it never checks.
+
 
 ## [1.2.0] — 2026-08-05
 

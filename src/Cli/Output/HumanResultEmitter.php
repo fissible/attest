@@ -21,6 +21,9 @@ final class HumanResultEmitter implements ResultEmitter
             $stats->trustedSignatureCount,
             $stats->untrustedSignatureCount,
         ));
+        // Adjacent to the outcome it qualifies; constant across outcomes and commands for the same
+        // reason the JSON block is — a caveat that varied would imply attest had checked.
+        $output->writeln('completeness: not asserted — ' . JsonResultSchema::COMPLETENESS_STATEMENT);
         if ($result->anchorVerification !== null) {
             $output->writeln(sprintf(
                 'anchor: %s%s',
