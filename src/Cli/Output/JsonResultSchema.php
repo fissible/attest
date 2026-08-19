@@ -35,12 +35,35 @@ final class JsonResultSchema
                 'untrusted_signatures' => $result->chainStats->untrustedSignatureCount,
                 'anchor_envelopes' => $result->chainStats->anchorEnvelopeCount,
             ],
+            'completeness' => self::completeness(),
             'signature_summary' => self::signatureSummary($result),
             'anchor_verification' => self::anchorSummary($result),
             'warnings' => array_map(
                 static fn ($w) => ['code' => $w->code, 'message' => $w->message, 'context' => $w->context],
                 $result->warnings,
             ),
+        ];
+    }
+
+    /**
+     * What a passing verification does not establish.
+     *
+     * A chain attests the integrity of the entries written to it. It cannot attest that those entries are
+     * every event that occurred, because anything that bypassed instrumentation never reached the chain to
+     * be signed. Documentation states this; the JSON did not, and an automated consumer reading
+     * `verified: true` has no other place to learn it.
+     *
+     * Constant rather than computed, deliberately: attest cannot detect a bypassed path, and a value that
+     * varied with the outcome would imply it had looked.
+     *
+     * @return array{asserted:bool,statement:string}
+     */
+    private static function completeness(): array
+    {
+        return [
+            'asserted' => false,
+            'statement' => 'Attests the integrity of recorded entries, not that they are all events. '
+                .'Anything that bypassed instrumentation is invisible to this record.',
         ];
     }
 

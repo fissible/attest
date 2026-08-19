@@ -17,6 +17,64 @@ use Symfony\Component\Console\Output\BufferedOutput;
 
 final class JsonResultEmitterTest extends TestCase
 {
+    /**
+     * A verified chain proves the recorded entries are intact. It does not prove they are all the events
+     * that happened, and a consumer reading only `verified: true` has no way to learn that from the
+     * output. The caveat travels with the data because that is where the wrong inference forms.
+     */
+    public function test_verification_payload_declares_that_completeness_is_not_asserted(): void
+    {
+        $result = new VerificationResult(
+            outcome: VerificationOutcome::VERIFIED,
+            chainStats: new ChainStats('tenant:5', 1, 5, 5, 5, 0, 0),
+            warnings: [],
+            signatureResults: [],
+            anchorVerification: null,
+        );
+
+        $output = new BufferedOutput();
+        (new JsonResultEmitter())->emit('verify', $result, 0, $output);
+
+        $payload = json_decode($output->fetch(), true);
+
+        self::assertTrue($payload['verified'], 'Precondition: this is the passing case.');
+        self::assertFalse(
+            $payload['completeness']['asserted'],
+            'Integrity verifying must never read as completeness being established.',
+        );
+        self::assertNotSame('', $payload['completeness']['statement']);
+        self::assertSame(
+            'attest.cli.result.v1',
+            $payload['format_version'],
+            'An additive field must not bump the format version; STABILITY.md permits additions within 1.x.',
+        );
+    }
+
+    /**
+     * The block is constant, not computed. attest cannot detect what bypassed instrumentation, so a value
+     * that varied with the outcome would imply it had checked something it never checks.
+     */
+    public function test_completeness_caveat_does_not_vary_with_the_verification_outcome(): void
+    {
+        $payloads = [];
+
+        foreach ([VerificationOutcome::VERIFIED, VerificationOutcome::INVALID_CHAIN] as $outcome) {
+            $output = new BufferedOutput();
+            (new JsonResultEmitter())->emit('verify', new VerificationResult(
+                outcome: $outcome,
+                chainStats: new ChainStats('tenant:5', 1, 5, 5, 5, 0, 0),
+                warnings: [],
+                signatureResults: [],
+                anchorVerification: null,
+            ), 0, $output);
+
+            $payloads[] = json_decode($output->fetch(), true)['completeness'];
+        }
+
+        self::assertSame($payloads[0], $payloads[1]);
+        self::assertFalse($payloads[0]['asserted']);
+    }
+
     public function test_emits_v1_schema_for_verified_result(): void
     {
         $result = new VerificationResult(

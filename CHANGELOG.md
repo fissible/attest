@@ -1,5 +1,25 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Verification JSON carries a `completeness` block stating that a passing verification does not assert the
+  record is complete ([#13](https://github.com/fissible/attest/issues/13)). `completeness.asserted` is always
+  `false` and is the machine-readable counterpart to `verified`, so a consumer can render "integrity
+  verified" and "completeness not asserted" as separate facts without parsing prose.
+
+  A chain attests the integrity of the entries written to it; anything that bypassed instrumentation never
+  reached the chain to be signed. The documentation said so and the JSON did not, which left an automated
+  consumer reading `verified: true` with no way to learn it.
+
+  The block is constant rather than computed, deliberately — attest cannot detect a bypassed path, and a
+  value that varied with the outcome would imply it had checked.
+
+  Additive: `format_version` remains `attest.cli.result.v1`, per `STABILITY.md`'s rule that additions within
+  `1.x` do not bump the schema identifier. No change to verify semantics, exit codes, or what is recorded.
+
+
 ## [1.2.0] — 2026-08-05
 
 ### Added
