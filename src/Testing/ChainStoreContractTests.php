@@ -17,6 +17,12 @@ use Symfony\Component\Uid\Ulid;
  *
  * Concrete test classes use this trait and implement makeStore().
  *
+ * Not covered here, because injecting corrupt storage is backend-specific:
+ * a stored record inside a requested range that cannot be decoded must be
+ * reported as Fissible\Attest\Chain\UndecodableRecord (see ChainStore::readRange()).
+ * Adapters should add their own test for that path; FileChainStoreReadTest in
+ * this package shows the expected behaviour.
+ *
  * @api
  * @phpstan-require-extends \PHPUnit\Framework\TestCase
  */

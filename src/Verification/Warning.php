@@ -16,6 +16,7 @@ final readonly class Warning
     public const ANCHOR_COVERAGE_AMBIGUOUS = 'anchor_coverage_ambiguous';
     public const DETACHED_ANCHOR_INVALID_SIGNATURE = 'detached_anchor_invalid_signature';
     public const DETACHED_ANCHOR_UNTRUSTED = 'detached_anchor_untrusted';
+    public const UNDECODABLE_RECORD_IGNORED = 'undecodable_record_ignored';
 
     /**
      * @param array<string, mixed> $context

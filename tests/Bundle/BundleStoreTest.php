@@ -12,6 +12,7 @@ use Fissible\Attest\Bundle\BundleStore;
 use Fissible\Attest\Chain\EvidenceChain;
 use Fissible\Attest\Chain\FileChainStore;
 use Fissible\Attest\Chain\RawChainStore;
+use Fissible\Attest\Chain\UndecodableRecord;
 use Fissible\Attest\Envelope\SignedEnvelope;
 use Fissible\Attest\Signing\KeyPair;
 use Fissible\Attest\Signing\SodiumSigner;
@@ -92,6 +93,30 @@ final class BundleStoreTest extends TestCase
             // Each raw line must equal the original signed canonical bytes
             self::assertSame($envelopes[$i]->signedCanonicalBytes(), $raw);
         }
+    }
+
+    public function test_corrupt_segment_line_in_range_throws_undecodable_record(): void
+    {
+        ['bundlePath' => $bundlePath, 'envelopes' => $envelopes] = $this->buildBundleStore();
+        $entry = 'chains/' . substr(hash('sha256', 'tenant:5'), 0, 32) . '.jsonl';
+        $zip = new \ZipArchive();
+        self::assertTrue($zip->open($bundlePath));
+        $zip->addFromString($entry, implode("\n", [
+            $envelopes[0]->signedCanonicalBytes(),
+            'not json',
+            $envelopes[2]->signedCanonicalBytes(),
+        ]) . "\n");
+        $zip->close();
+        $store = new BundleStore(BundleReader::open($bundlePath));
+
+        try {
+            iterator_to_array($store->readRawRange('tenant:5', 1, 3), false);
+            self::fail('Expected UndecodableRecord');
+        } catch (UndecodableRecord $e) {
+            self::assertSame(2, $e->seq);
+        }
+
+        self::assertCount(1, iterator_to_array($store->readRange('tenant:5', 1, 1), false));
     }
 
     public function test_readRange_decodes_envelopes(): void
