@@ -121,6 +121,25 @@ final class AnchorCommandTest extends TestCase
         return new OpenTimestampsCalendarClient($http, $factory, $factory);
     }
 
+    private function isoNow(): string
+    {
+        return (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('Y-m-d\TH:i:s.v\Z');
+    }
+
+    private function anchorIdFor(FileChainStore $store, string $chainId, int $from, int $to): string
+    {
+        $rawBytes = iterator_to_array($store->readRawRange($chainId, $from, $to), false);
+        $target = new AnchorTarget(
+            chainId: $chainId,
+            fromSeq: $from,
+            toSeq: $to,
+            merkleAlgorithm: MerkleTree::ALGORITHM,
+            rootHex: MerkleTree::rootHex($rawBytes),
+        );
+
+        return AnchorId::derive($target, NullDriver::NAME);
+    }
+
     private function pendingTimestampBytes(): string
     {
         return OpenTimestampsCodec::encodeTimestampBytes(
@@ -229,7 +248,7 @@ final class AnchorCommandTest extends TestCase
             toSeq: 2,
             driver: NullDriver::NAME,
             claimedBy: 'some-other-worker',
-            claimedAtIso8601: '2000-01-01T00:00:00.000Z',
+            claimedAtIso8601: $this->isoNow(),
         ));
         // Do NOT append an anchor envelope → reconcileExistingAnchor returns null → skipped.
 
@@ -246,6 +265,66 @@ final class AnchorCommandTest extends TestCase
         self::assertIsArray($payload, 'Output must be valid JSON');
         self::assertSame('skipped', $payload['result'], 'Result must be skipped; got: ' . $payload['result']);
         self::assertNotEmpty($payload['warnings'], 'warnings must be non-empty for skipped case');
+        self::assertStringContainsString('--claim-ttl 3600', $payload['warnings'][0]);
+    }
+
+    public function test_expired_claim_is_reclaimed_and_range_is_anchored(): void
+    {
+        $store = $this->buildChain('c', 2);
+        $claimStore = new FileAnchorClaimStore($this->tmpDir);
+        $claimStore->claim($this->anchorIdFor($store, 'c', 1, 2), new AnchorClaim(
+            chainId: 'c',
+            fromSeq: 1,
+            toSeq: 2,
+            driver: NullDriver::NAME,
+            claimedBy: 'crashed-worker',
+            claimedAtIso8601: '2000-01-01T00:00:00.000Z',
+        ));
+
+        $tester = $this->makeTester();
+        $exitCode = $tester->execute([...$this->baseArgs('c', 1, 2), '--json' => true]);
+
+        $payload = json_decode($tester->getDisplay(), true);
+        self::assertSame(0, $exitCode);
+        self::assertIsArray($payload);
+        self::assertSame('anchored', $payload['result']);
+    }
+
+    public function test_claim_ttl_option_controls_reclaim(): void
+    {
+        $store = $this->buildChain('c', 2);
+        $claimStore = new FileAnchorClaimStore($this->tmpDir);
+        $claimStore->claim($this->anchorIdFor($store, 'c', 1, 2), new AnchorClaim(
+            chainId: 'c',
+            fromSeq: 1,
+            toSeq: 2,
+            driver: NullDriver::NAME,
+            claimedBy: 'crashed-worker',
+            claimedAtIso8601: (new \DateTimeImmutable('-30 seconds', new \DateTimeZone('UTC')))->format('Y-m-d\TH:i:s.v\Z'),
+        ));
+
+        $tester = $this->makeTester();
+        $tester->execute([...$this->baseArgs('c', 1, 2), '--json' => true, '--claim-ttl' => '86400']);
+        $payload = json_decode($tester->getDisplay(), true);
+        self::assertIsArray($payload);
+        self::assertSame('skipped', $payload['result'], 'a 30s-old claim is live under a 1-day TTL');
+
+        $tester = $this->makeTester();
+        $tester->execute([...$this->baseArgs('c', 1, 2), '--json' => true, '--claim-ttl' => '10']);
+        $payload = json_decode($tester->getDisplay(), true);
+        self::assertIsArray($payload);
+        self::assertSame('anchored', $payload['result'], 'a 30s-old claim is expired under a 10s TTL');
+    }
+
+    public function test_non_numeric_claim_ttl_exits_1(): void
+    {
+        $this->buildChain('c', 2);
+
+        $tester = $this->makeTester();
+        $exitCode = $tester->execute([...$this->baseArgs('c', 1, 2), '--claim-ttl' => 'abc']);
+
+        self::assertSame(1, $exitCode);
+        self::assertStringContainsString('--claim-ttl', $tester->getDisplay());
     }
 
     // ────────────────────────────────────────────────────────────────────────
