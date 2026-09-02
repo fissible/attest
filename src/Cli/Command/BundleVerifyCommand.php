@@ -9,6 +9,7 @@ use Fissible\Attest\Bundle\BundleSupportUnavailable;
 use Fissible\Attest\Bundle\InvalidBundle;
 use Fissible\Attest\Cli\Output\HumanResultEmitter;
 use Fissible\Attest\Cli\Output\JsonResultEmitter;
+use Fissible\Attest\Cli\Output\RuntimeErrorEmitter;
 use Fissible\Attest\Cli\Support\AnchorDriverFactory;
 use Fissible\Attest\Cli\Support\HeaderProviderFactory;
 use Fissible\Attest\Cli\Support\MinAnchorOption;
@@ -135,28 +136,35 @@ final class BundleVerifyCommand extends Command
         // ── Build BundleStore and collect proof envelopes ────────────────────
         $bundleStore = new BundleStore($reader);
 
-        $proofEnvelopes = iterator_to_array($reader->readProofEnvelopes($chainId), false);
+        $json = (bool) $input->getOption('json');
+        try {
+            $proofEnvelopes = iterator_to_array($reader->readProofEnvelopes($chainId), false);
 
-        // ── Build verifier ───────────────────────────────────────────────────
-        // CRITICAL: Claimed keys from the bundle are NEVER auto-trusted.
-        // Only $trustedKeys (from --trusted-key / --trusted-key-file) are trust inputs.
-        //
-        // Always register local-only verification. OTS verification is added when
-        // the optional Guzzle PSR-18 stack is installed.
-        $verifier = new Verifier(
-            store: $bundleStore,
-            signatures: new SignatureVerifier($trustedKeys),
-            policy: new VerificationPolicy(
-                minAnchorOutcome: $minAnchor,
-                allowProviderDisagreement: (bool) $input->getOption('allow-provider-disagreement'),
-                requireTrustedKey: ! $input->getOption('allow-untrusted'),
-            ),
-            anchorDrivers: AnchorDriverFactory::verificationDrivers(),
-            headers: $headers,
-            detachedAnchorEnvelopes: $proofEnvelopes,
-        );
+            // ── Build verifier ───────────────────────────────────────────────
+            // CRITICAL: Claimed keys from the bundle are NEVER auto-trusted.
+            // Only $trustedKeys (from --trusted-key / --trusted-key-file) are trust inputs.
+            //
+            // Always register local-only verification. OTS verification is added when
+            // the optional Guzzle PSR-18 stack is installed.
+            $verifier = new Verifier(
+                store: $bundleStore,
+                signatures: new SignatureVerifier($trustedKeys),
+                policy: new VerificationPolicy(
+                    minAnchorOutcome: $minAnchor,
+                    allowProviderDisagreement: (bool) $input->getOption('allow-provider-disagreement'),
+                    requireTrustedKey: ! $input->getOption('allow-untrusted'),
+                ),
+                anchorDrivers: AnchorDriverFactory::verificationDrivers(),
+                headers: $headers,
+                detachedAnchorEnvelopes: $proofEnvelopes,
+            );
 
-        $result = $verifier->verifyChain($chainId, $fromSeq, $toSeq);
+            $result = $verifier->verifyChain($chainId, $fromSeq, $toSeq);
+        } catch (\Throwable $e) {
+            // Undecodable chain records are already INVALID_CHAIN outcomes; what
+            // escapes here is a runtime failure before an outcome existed.
+            return RuntimeErrorEmitter::emit('bundle:verify', $e, $json, $output);
+        }
 
         // ── Merge bundle reader warnings ─────────────────────────────────────
         $readerWarnings = $reader->warnings();
@@ -176,7 +184,7 @@ final class BundleVerifyCommand extends Command
         $exit = self::exitCodeFor($result->outcome, $allowUntrusted);
 
         // ── Emit output ──────────────────────────────────────────────────────
-        if ($input->getOption('json')) {
+        if ($json) {
             $emitter = new JsonResultEmitter();
         } else {
             $output->writeln('bundle: ' . $bundlePath . ' (chain: ' . $chainId . ', seqs ' . $fromSeq . '-' . $toSeq . ')');

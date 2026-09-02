@@ -109,6 +109,40 @@ final class BundleVerifyCommandTest extends TestCase
         self::assertTrue($zip->close(), 'Mutated bundle ZIP must close cleanly');
     }
 
+    private function corruptSecondChainLine(string $bundlePath, string $chainId): void
+    {
+        $entry = BundleConstants::CHAINS_PREFIX . substr(hash('sha256', $chainId), 0, 32) . '.jsonl';
+        $zip = new \ZipArchive();
+        self::assertTrue($zip->open($bundlePath) === true);
+        $bytes = $zip->getFromName($entry);
+        self::assertIsString($bytes);
+        $lines = array_values(array_filter(explode("\n", $bytes), static fn (string $l): bool => $l !== ''));
+        $lines[1] = 'this is not json';
+        self::assertTrue($zip->deleteName($entry));
+        self::assertTrue($zip->addFromString($entry, implode("\n", $lines) . "\n"));
+        $zip->setCompressionName($entry, \ZipArchive::CM_STORE);
+        self::assertTrue($zip->close());
+    }
+
+    public function test_undecodable_chain_line_exits_4_with_structured_json(): void
+    {
+        [$bundlePath, $kp] = $this->buildAndExportBundle('chain1', 3);
+        $this->corruptSecondChainLine($bundlePath, 'chain1');
+
+        $tester = $this->makeTester();
+        $exitCode = $tester->execute([
+            '--bundle' => $bundlePath,
+            '--trusted-key' => ['k1=' . base64_encode($kp->publicKey)],
+            '--json' => true,
+        ]);
+
+        self::assertSame(4, $exitCode);
+        $payload = json_decode($tester->getDisplay(), true);
+        self::assertIsArray($payload);
+        self::assertSame('invalid_chain', $payload['outcome']);
+        self::assertSame(2, $payload['broken_at_seq']);
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Test 1: Happy path — verify bundle with trusted key + min-anchor local_only → exit 0
     // ─────────────────────────────────────────────────────────────────────────

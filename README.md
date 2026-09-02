@@ -450,7 +450,7 @@ vendor/bin/attest upgrade \
 
 ### JSON output schema
 
-All commands emit a stable JSON envelope on stdout when `--json` is passed. The four schema
+All commands emit a stable JSON envelope on stdout when `--json` is passed. The schema
 identifiers are pinned within the 1.x line; future additions will be additive (no removals
 or renames within the same schema identifier):
 
@@ -458,6 +458,12 @@ or renames within the same schema identifier):
 - `attest.cli.export.v1` — emitted by `bundle:export`
 - `attest.cli.anchor.v1` — emitted by `anchor`
 - `attest.cli.upgrade.v1` — emitted by `upgrade`
+- `attest.cli.error.v1` — emitted by `verify` and `bundle:verify` on a runtime error before a
+  verification outcome existed (exit 1): `{"format_version", "command", "exit_code", "error", "error_class"}`
+
+A stored record that cannot be decoded (not JSON, wrong field type, malformed signature
+encoding) is a verification outcome, not a runtime error: `verify` and `bundle:verify` report
+`invalid_chain` with `broken_at_seq` at the position of the unreadable record and exit 4.
 
 **`verified` and `completeness.asserted` are two different facts, and a consumer should render them
 separately.** `attest.cli.result.v1` carries a constant `completeness` block:

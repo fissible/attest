@@ -244,6 +244,93 @@ final class VerifyCommandTest extends TestCase
         self::assertSame(4, $exitCode);
     }
 
+    public function test_undecodable_stored_line_exits_4_with_structured_json(): void
+    {
+        $kp = KeyPair::generate();
+        $this->buildChain('chain1', $kp, 3);
+        $jsonlPath = (new PathMapper($this->tmpDir))->jsonlPath('chain1');
+        $lines = file($jsonlPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        self::assertIsArray($lines);
+        $lines[1] = 'this is not json';
+        file_put_contents($jsonlPath, implode("\n", $lines) . "\n");
+
+        $tester = $this->makeTester();
+        $exitCode = $tester->execute([
+            '--storage-root' => $this->tmpDir,
+            '--chain' => 'chain1',
+            '--trusted-key' => ['k1=' . base64_encode($kp->publicKey)],
+            '--json' => true,
+        ]);
+
+        self::assertSame(4, $exitCode);
+        $payload = json_decode($tester->getDisplay(), true);
+        self::assertIsArray($payload, 'Output must be valid JSON');
+        self::assertSame('attest.cli.result.v1', $payload['format_version']);
+        self::assertSame('invalid_chain', $payload['outcome']);
+        self::assertSame(2, $payload['broken_at_seq']);
+    }
+
+    public function test_non_numeric_from_exits_1_with_error_line(): void
+    {
+        $kp = KeyPair::generate();
+        $this->buildChain('chain1', $kp, 2);
+
+        $tester = $this->makeTester();
+        $exitCode = $tester->execute([
+            '--storage-root' => $this->tmpDir,
+            '--chain' => 'chain1',
+            '--from' => 'abc',
+            '--trusted-key' => ['k1=' . base64_encode($kp->publicKey)],
+        ]);
+
+        self::assertSame(1, $exitCode);
+        self::assertStringStartsWith('error: --from must be an integer >= 1', $tester->getDisplay());
+    }
+
+    public function test_to_below_from_exits_1_with_error_line(): void
+    {
+        $kp = KeyPair::generate();
+        $this->buildChain('chain1', $kp, 2);
+
+        $tester = $this->makeTester();
+        $exitCode = $tester->execute([
+            '--storage-root' => $this->tmpDir,
+            '--chain' => 'chain1',
+            '--from' => '2',
+            '--to' => '1',
+            '--trusted-key' => ['k1=' . base64_encode($kp->publicKey)],
+        ]);
+
+        self::assertSame(1, $exitCode);
+        self::assertStringStartsWith('error: --to must be an integer >= --from', $tester->getDisplay());
+    }
+
+    public function test_runtime_error_during_verification_exits_1_with_error_line(): void
+    {
+        $kp = KeyPair::generate();
+        $this->buildChain('chain1', $kp, 2);
+        $lockPath = (new PathMapper($this->tmpDir))->lockPath('chain1');
+        self::assertFileExists($lockPath);
+        chmod($lockPath, 0o444);
+
+        $tester = $this->makeTester();
+        $exitCode = $tester->execute([
+            '--storage-root' => $this->tmpDir,
+            '--chain' => 'chain1',
+            '--trusted-key' => ['k1=' . base64_encode($kp->publicKey)],
+            '--json' => true,
+        ]);
+        chmod($lockPath, 0o644);
+
+        self::assertSame(1, $exitCode);
+        $payload = json_decode($tester->getDisplay(), true);
+        self::assertIsArray($payload, 'Runtime errors must still produce JSON under --json');
+        self::assertSame('attest.cli.error.v1', $payload['format_version']);
+        self::assertSame('verify', $payload['command']);
+        self::assertSame(1, $payload['exit_code']);
+        self::assertStringContainsString('append lock', $payload['error']);
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Test 7: Provider disagreement → exit 5 [DEFERRED]
     // ─────────────────────────────────────────────────────────────────────────
