@@ -6,6 +6,7 @@ namespace Fissible\Attest\Tests\Chain;
 use Fissible\Attest\Chain\EvidenceChain;
 use Fissible\Attest\Chain\FileChainStore;
 use Fissible\Attest\Chain\PathMapper;
+use Fissible\Attest\Chain\UndecodableRecord;
 use Fissible\Attest\Signing\KeyPair;
 use Fissible\Attest\Signing\SodiumSigner;
 use PHPUnit\Framework\TestCase;
@@ -74,6 +75,51 @@ final class RawChainStoreTest extends TestCase
         $raw = iterator_to_array($this->store->readRawRange('tenant:5', 1, 2), false);
 
         $this->assertSame([$first->signedCanonicalBytes()], $raw);
+    }
+
+    public function test_read_raw_range_throws_undecodable_record_for_corrupt_line_in_range(): void
+    {
+        $this->chain->record('t1', ['n' => 1]);
+        $this->chain->record('t2', ['n' => 2]);
+        $this->chain->record('t3', ['n' => 3]);
+        $this->replaceLine(1, 'not json');
+
+        try {
+            iterator_to_array($this->store->readRawRange('tenant:5', 1, 3), false);
+            $this->fail('Expected UndecodableRecord');
+        } catch (UndecodableRecord $e) {
+            $this->assertSame(2, $e->seq);
+        }
+    }
+
+    public function test_read_raw_range_ignores_corrupt_line_after_requested_range(): void
+    {
+        $first = $this->chain->record('t1', ['n' => 1]);
+        $this->chain->record('t2', ['n' => 2]);
+        $this->replaceLine(1, 'not json');
+
+        $raw = iterator_to_array($this->store->readRawRange('tenant:5', 1, 1), false);
+
+        $this->assertSame([$first->signedCanonicalBytes()], $raw);
+    }
+
+    public function test_read_raw_range_skips_corrupt_line_before_requested_range(): void
+    {
+        $this->chain->record('t1', ['n' => 1]);
+        $second = $this->chain->record('t2', ['n' => 2]);
+        $this->replaceLine(0, 'not json');
+
+        $raw = iterator_to_array($this->store->readRawRange('tenant:5', 2, 2), false);
+
+        $this->assertSame([$second->signedCanonicalBytes()], $raw);
+    }
+
+    private function replaceLine(int $index, string $replacement): void
+    {
+        $path = (new PathMapper($this->root))->jsonlPath('tenant:5');
+        $lines = explode("\n", rtrim((string) file_get_contents($path), "\n"));
+        $lines[$index] = $replacement;
+        file_put_contents($path, implode("\n", $lines) . "\n");
     }
 
     private function removeDir(string $path): void
