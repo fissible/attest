@@ -25,7 +25,11 @@ final class AnchorService
         private readonly Signer $signer,
         private readonly AnchorBatchSelector $batchSelector = new AnchorBatchSelector(),
         private readonly ?string $claimedBy = null,
+        private readonly int $claimTtlSeconds = 3600,
     ) {
+        if ($claimTtlSeconds < 0) {
+            throw new \InvalidArgumentException('claimTtlSeconds must be >= 0');
+        }
     }
 
     public function anchorNext(
@@ -67,17 +71,22 @@ final class AnchorService
             rootHex: MerkleTree::rootHex($bytes),
         );
         $anchorId = AnchorId::derive($target, $driver->name());
-        $claim = new AnchorClaim(
-            chainId: $chainId,
-            fromSeq: $fromSeq,
-            toSeq: $toSeq,
-            driver: $driver->name(),
-            claimedBy: $this->claimedBy(),
-            claimedAtIso8601: $this->nowIso8601(),
-        );
 
-        if (! $this->claimStore->claim($anchorId, $claim)) {
-            return $this->reconcileExistingAnchor($anchorId, $target);
+        if (! $this->claimStore->claim($anchorId, $this->newClaim($chainId, $fromSeq, $toSeq, $driver))) {
+            $existing = $this->reconcileExistingAnchor($anchorId, $target);
+            if ($existing !== null) {
+                return $existing;
+            }
+            // No envelope backs the held claim. If the claim is older than the
+            // TTL, its worker died between claim() and the append; reclaim it
+            // and retry exactly once with a fresh claim. A live claim is left
+            // to its owner.
+            if (! $this->reclaimIfExpired($anchorId)) {
+                return null;
+            }
+            if (! $this->claimStore->claim($anchorId, $this->newClaim($chainId, $fromSeq, $toSeq, $driver))) {
+                return null;
+            }
         }
 
         try {
@@ -138,6 +147,31 @@ final class AnchorService
 
         return EvidenceChain::open($this->store, $receipt->target->chainId, $this->signer)
             ->record($type, $payload);
+    }
+
+    private function newClaim(string $chainId, int $fromSeq, int $toSeq, AnchorDriver $driver): AnchorClaim
+    {
+        return new AnchorClaim(
+            chainId: $chainId,
+            fromSeq: $fromSeq,
+            toSeq: $toSeq,
+            driver: $driver->name(),
+            claimedBy: $this->claimedBy(),
+            claimedAtIso8601: $this->nowIso8601(),
+        );
+    }
+
+    private function reclaimIfExpired(string $anchorId): bool
+    {
+        foreach ($this->claimStore->reclaimExpired($this->claimTtlSeconds) as $expiredAnchorId => $expiredClaim) {
+            if ($expiredAnchorId === $anchorId) {
+                $this->claimStore->release($anchorId);
+
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function reconcileExistingAnchor(string $anchorId, AnchorTarget $target): ?SignedEnvelope

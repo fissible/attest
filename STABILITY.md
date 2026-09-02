@@ -77,7 +77,11 @@ live-network validation against real calendars and Bitcoin confirmations.
 
 Consequences:
 
-- `AnchorOutcome` is `@api` (it is part of `VerificationPolicy`).
+- `AnchorOutcome` is `@api` (it is part of `VerificationPolicy`). Of its ranked values, only
+  `REMOTE_HEADER_CONFIRMED` and `BITCOIN_VERIFIED` result from a check against block headers;
+  `LOCAL_ONLY`, `PENDING`, and `UPGRADED_NO_HEADERS` are read from the chain's own signed
+  content and can be produced by any holder of a trusted signing key. Policies that need
+  external time binding must require one of the two header-confirmed outcomes.
 - A stable `VerificationResult` may carry an experimental `AnchorVerification` via its
   `->anchorVerification` property. The presence and shape of that sub-object is not yet frozen.
 - `Testing\AnchorClaimStoreContractTests` is `@api` test support for adapters, even though

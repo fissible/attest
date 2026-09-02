@@ -55,6 +55,7 @@ final class AnchorCommand extends Command
             ->addOption('min-calendars', null, InputOption::VALUE_REQUIRED, 'Minimum number of calendars required (opentimestamps only).', '1')
             ->addOption('signer-key-file', null, InputOption::VALUE_REQUIRED, 'Path to file containing a base64-encoded 32-byte Ed25519 seed.')
             ->addOption('signer-key-id', null, InputOption::VALUE_REQUIRED, 'Key ID string for the signing key.')
+            ->addOption('claim-ttl', null, InputOption::VALUE_REQUIRED, 'Seconds after which an uncompleted anchor claim left by a dead worker is reclaimed.', '3600')
             ->addOption('json', null, InputOption::VALUE_NONE, 'Emit machine-readable JSON output (attest.cli.anchor.v1).');
     }
 
@@ -70,6 +71,7 @@ final class AnchorCommand extends Command
         $signerKeyId   = $input->getOption('signer-key-id');
         $calendarUrls  = $input->getOption('calendar-url') ?: [];
         $minCalendarsRaw = $input->getOption('min-calendars');
+        $claimTtlRaw   = $input->getOption('claim-ttl');
 
         if (! is_string($storageRoot) || ! is_dir($storageRoot)) {
             $output->writeln('error: --storage-root must point to an existing directory');
@@ -109,6 +111,11 @@ final class AnchorCommand extends Command
             $output->writeln('error: --signer-key-id is required');
             return 1;
         }
+        if (! is_string($claimTtlRaw) || ! ctype_digit($claimTtlRaw)) {
+            $output->writeln('error: --claim-ttl must be an integer number of seconds >= 0');
+            return 1;
+        }
+        $claimTtl = (int) $claimTtlRaw;
 
         // ── Load signer ──────────────────────────────────────────────────────
         if (! is_file($signerKeyFile)) {
@@ -166,7 +173,7 @@ final class AnchorCommand extends Command
         $preSeq  = $preTail?->envelope->seq ?? 0;
 
         // ── Call AnchorService ───────────────────────────────────────────────
-        $service = new AnchorService($store, $claimStore, $signer);
+        $service = new AnchorService($store, $claimStore, $signer, claimTtlSeconds: $claimTtl);
         try {
             $envelope = $service->anchorRange($chainId, $fromSeq, $toSeq, $driver);
         } catch (CalendarUnavailable $e) {
@@ -185,7 +192,10 @@ final class AnchorCommand extends Command
             $envelopeId  = null;
             $anchorId    = null;
             $state       = null;
-            $warnings[]  = 'claim held by another worker; no existing anchor envelope found';
+            $warnings[]  = sprintf(
+                'claim held by another worker (younger than --claim-ttl %ds); no existing anchor envelope found',
+                $claimTtl,
+            );
         } else {
             $envelopeId = $envelope->envelope->id;
             $anchorId   = $envelope->envelope->payload['anchor_id'] ?? null;

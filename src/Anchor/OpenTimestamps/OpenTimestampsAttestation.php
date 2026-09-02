@@ -145,14 +145,19 @@ final readonly class OpenTimestampsAttestation
 
             $byte = ord($bytes[$offset]);
             $offset++;
-            $value |= ($byte & 0x7f) << $shift;
-            if (($byte & 0x80) === 0) {
-                return $value;
-            }
-            $shift += 7;
-            if ($shift > 63) {
+            // Nine 7-bit groups fill bits 0..62; a tenth group would shift
+            // past the sign bit and wrap silently in PHP's signed arithmetic.
+            if ($shift > 56) {
                 throw new \InvalidArgumentException('varuint is too large');
             }
+            if (($byte & 0x80) === 0) {
+                if ($byte === 0 && $shift > 0) {
+                    throw new \InvalidArgumentException('varuint is not minimally encoded');
+                }
+                return $value | ($byte << $shift);
+            }
+            $value |= ($byte & 0x7f) << $shift;
+            $shift += 7;
         }
     }
 }

@@ -34,6 +34,13 @@ final class EnvelopeCodec
                 throw new \InvalidArgumentException("Envelope missing field: $required");
             }
         }
+        // EvidenceEnvelope hard-codes v=1; anything else is a version this codec
+        // does not understand and must not be silently decoded as v=1.
+        if ($arr['v'] !== 1) {
+            throw new \InvalidArgumentException(
+                'Unsupported envelope version: ' . json_encode($arr['v']) . ' (expected 1)'
+            );
+        }
         $sigRaw = $arr['sig'];
         if (! is_string($sigRaw) || ! str_starts_with($sigRaw, 'base64:')) {
             throw new \InvalidArgumentException("Envelope 'sig' must be a base64-prefixed string");
