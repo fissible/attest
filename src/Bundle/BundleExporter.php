@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Fissible\Attest\Bundle;
 
 use Fissible\Attest\Anchor\AnchorEnvelope;
+use Fissible\Attest\Anchor\AnchorReceipt;
 use Fissible\Attest\Anchor\ProofState;
 use Fissible\Attest\Chain\ChainStore;
 use Fissible\Attest\Chain\RawChainStore;
@@ -190,9 +191,11 @@ final class BundleExporter
         // - Collect exact-range proof envelopes
         // - Detect wider-only anchors if no exact match is found
         $proofLines = [];
-        // Keyed by anchor_id to deduplicate receipt cache entries
-        $receiptEntriesByAnchorId = [];
-        $anchorMetas = [];
+        // Strongest receipt per anchor_id. Every exact-range envelope is kept
+        // in proof_envelopes/ (the verifier needs the supersession history),
+        // but the manifest and receipt cache describe only the winning proof.
+        /** @var array<string, array{receipt: AnchorReceipt, envelopeId: string}> $winners */
+        $winners = [];
         $exactCount = 0;
         $widerCount = 0;
 
@@ -219,28 +222,13 @@ final class BundleExporter
                 $exactCount++;
                 $proofLines[] = $signed->signedCanonicalBytes();
 
-                $anchorMetas[] = new AnchorMeta(
-                    anchorId: $receipt->anchorId,
-                    chainId: $target->chainId,
-                    fromSeq: $target->fromSeq,
-                    toSeq: $target->toSeq,
-                    merkleAlgorithm: $target->merkleAlgorithm,
-                    root: $target->rootHex,
-                    driver: $receipt->driverName,
-                    state: $receipt->state->value,
-                    receiptEnvelopeId: $signed->envelope->id,
-                    receiptCacheFile: BundleConstants::RECEIPTS_PREFIX . $receipt->anchorId . '.ots',
-                );
-                // Deduplicate: later entries for the same anchor_id overwrite earlier ones
-                $receiptEntriesByAnchorId[$receipt->anchorId] =
-                    BundleConstants::RECEIPTS_PREFIX . $receipt->anchorId . '.ots';
-
-                if ($receipt->state === ProofState::PENDING) {
-                    $this->warnings[] = new Warning(
-                        'bundle_export_pending_anchor',
-                        'Anchor is in PENDING state; consider running `attest upgrade` before export.',
-                        ['anchor_id' => $receipt->anchorId],
-                    );
+                // Later envelopes win ties so an equal-strength re-record supersedes.
+                $current = $winners[$receipt->anchorId] ?? null;
+                if ($current === null || $receipt->state->strength() >= $current['receipt']->state->strength()) {
+                    $winners[$receipt->anchorId] = [
+                        'receipt' => $receipt,
+                        'envelopeId' => $signed->envelope->id,
+                    ];
                 }
             } elseif ($isWider) {
                 $widerCount++;
@@ -256,31 +244,34 @@ final class BundleExporter
             );
         }
 
-        // Build receipt entries map (path => raw bytes) from deduplicated anchor ids
+        // Manifest entries and receipt cache (path => raw bytes) from the winners
+        $anchorMetas = [];
         $receiptEntries = [];
-        foreach ($receiptEntriesByAnchorId as $anchorId => $path) {
-            // Re-fetch receipt bytes: walk proof lines to find the matching anchor
-            foreach ($proofLines as $line) {
-                // Decode to extract receipt_bytes for this anchor_id
-                try {
-                    $decoded = json_decode($line, true, flags: JSON_THROW_ON_ERROR);
-                    if (is_array($decoded)
-                        && isset($decoded['payload']['anchor_id'])
-                        && $decoded['payload']['anchor_id'] === $anchorId
-                        && isset($decoded['payload']['receipt_bytes'])
-                        && is_string($decoded['payload']['receipt_bytes'])
-                        && str_starts_with($decoded['payload']['receipt_bytes'], 'base64:')
-                    ) {
-                        $rawBytes = \ParagonIE\ConstantTime\Base64::decode(
-                            substr($decoded['payload']['receipt_bytes'], 7),
-                            strictPadding: true,
-                        );
-                        $receiptEntries[$path] = $rawBytes;
-                        break;
-                    }
-                } catch (\Throwable) {
-                    // skip malformed lines
-                }
+        foreach ($winners as $anchorId => $winner) {
+            $receipt = $winner['receipt'];
+            $target = $receipt->target;
+            $path = BundleConstants::RECEIPTS_PREFIX . $anchorId . '.ots';
+
+            $anchorMetas[] = new AnchorMeta(
+                anchorId: $anchorId,
+                chainId: $target->chainId,
+                fromSeq: $target->fromSeq,
+                toSeq: $target->toSeq,
+                merkleAlgorithm: $target->merkleAlgorithm,
+                root: $target->rootHex,
+                driver: $receipt->driverName,
+                state: $receipt->state->value,
+                receiptEnvelopeId: $winner['envelopeId'],
+                receiptCacheFile: $path,
+            );
+            $receiptEntries[$path] = $receipt->receiptBytes;
+
+            if ($receipt->state === ProofState::PENDING) {
+                $this->warnings[] = new Warning(
+                    'bundle_export_pending_anchor',
+                    'Anchor is in PENDING state; consider running `attest upgrade` before export.',
+                    ['anchor_id' => $anchorId],
+                );
             }
         }
 
