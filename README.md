@@ -419,7 +419,7 @@ vendor/bin/attest <command> [options]
 | 1 | CLI / configuration / runtime error before a `VerificationOutcome` | Bad options, missing files, invalid arguments |
 | 2 | `INTEGRITY_VERIFIED_UNTRUSTED` | `--allow-untrusted` downgrades to 0 |
 | 3 | `ANCHOR_BELOW_MIN` | Anchor exists but is below `--min-anchor` threshold |
-| 4 | `INVALID_CHAIN` / `INVALID_SIGNATURE` / `INVALID_ANCHOR` | Also: bundle export failure, calendar unavailable |
+| 4 | `INVALID_CHAIN` / `INVALID_SIGNATURE` / `INVALID_ANCHOR` | Also: bundle export failure; calendar unavailable (`anchor`); `upgrade --anchor-id` with no pending anchor for that id; `upgrade --all-pending` when every anchor failed and none succeeded |
 | 5 | `PROVIDER_DISAGREEMENT` | `--allow-provider-disagreement` downgrades to the strongest passing outcome |
 
 ### Examples
