@@ -182,6 +182,16 @@ attestation. The meaningful levels, weakest to strongest:
 | `remote_header_confirmed` | Confirmed via a remote explorer — the explorer is part of the trust path. |
 | `bitcoin_verified` | Confirmed against a Bitcoin block header you trust (e.g. your own node). |
 
+Only the last two levels are evidence. `local_only`, `pending`, and `upgraded_no_headers` are
+asserted from the chain's own signed content: a pending OpenTimestamps attestation is just a
+calendar URI, and an upgraded receipt's block height and Merkle path are never checked unless a
+header provider is configured. Anyone holding a trusted signing key can record an anchor envelope
+that satisfies `--min-anchor pending` or `--min-anchor upgraded_no_headers`, so those levels add
+nothing to the tamper-evidence claim below. Treat them as operational states — a receipt exists
+that `attest upgrade` can later confirm — not as proof of time. A verification that must bind the
+chain to an external clock needs `remote_header_confirmed` or `bitcoin_verified`, which is where a
+header check actually happens.
+
 ## What this does not prove
 
 Local integrity defeats **database-only** tampering. It does not defeat **application
@@ -213,8 +223,10 @@ To extend the boundary:
   own authorization means app-level RCE no longer yields the ability to re-sign history.
 - **Anchor.** A public time anchor is what turns "the operator rewrote everything" from
   undetectable into detectable, because the rewritten chain cannot produce a Merkle root that
-  was already published. Anchoring is experimental in `1.x`; treat a `1.x` anchoring deployment
-  as validation, not as a settled interface.
+  was already published. This holds only once the anchor is header-confirmed
+  (`remote_header_confirmed` or `bitcoin_verified`); a `pending` or `upgraded_no_headers` anchor
+  is still the key holder's own assertion. Anchoring is experimental in `1.x`; treat a `1.x`
+  anchoring deployment as validation, not as a settled interface.
 - **Replicate.** Shipping bundles to a party who does not trust you, on a schedule, bounds how
   far back a rewrite can reach even without anchoring.
 
@@ -407,7 +419,7 @@ vendor/bin/attest <command> [options]
 | 1 | CLI / configuration / runtime error before a `VerificationOutcome` | Bad options, missing files, invalid arguments |
 | 2 | `INTEGRITY_VERIFIED_UNTRUSTED` | `--allow-untrusted` downgrades to 0 |
 | 3 | `ANCHOR_BELOW_MIN` | Anchor exists but is below `--min-anchor` threshold |
-| 4 | `INVALID_CHAIN` / `INVALID_SIGNATURE` / `INVALID_ANCHOR` | Also: bundle export failure, calendar unavailable |
+| 4 | `INVALID_CHAIN` / `INVALID_SIGNATURE` / `INVALID_ANCHOR` | Also: bundle export failure; calendar unavailable (`anchor`); `upgrade --anchor-id` with no pending anchor for that id; `upgrade --all-pending` when every anchor failed and none succeeded |
 | 5 | `PROVIDER_DISAGREEMENT` | `--allow-provider-disagreement` downgrades to the strongest passing outcome |
 
 ### Examples

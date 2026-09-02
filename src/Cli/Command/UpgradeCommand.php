@@ -343,6 +343,11 @@ final class UpgradeCommand extends Command
         if ($hasAnchorId && $failed !== []) {
             return 4;
         }
+        // --all-pending is best-effort: partial failure exits 0 with the
+        // failures listed. Exit 4 only when nothing succeeded at all.
+        if ($failed !== [] && $upgraded === [] && $unchanged === []) {
+            return 4;
+        }
 
         return 0;
     }

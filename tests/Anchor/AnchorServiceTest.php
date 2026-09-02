@@ -117,6 +117,50 @@ final class AnchorServiceTest extends TestCase
         $this->assertArrayNotHasKey($anchorId, iterator_to_array($this->claimStore->reclaimExpired(0)));
     }
 
+    public function test_expired_uncompleted_claim_is_reclaimed_and_range_is_anchored(): void
+    {
+        $chain = $this->chain();
+        $chain->record('t1', []);
+        $chain->record('t2', []);
+        $anchorId = $this->anchorIdFor(1, 2);
+        $this->assertTrue($this->claimStore->claim($anchorId, $this->foreignClaim(
+            claimedAt: (new \DateTimeImmutable('-2 hours', new \DateTimeZone('UTC')))->format('Y-m-d\TH:i:s.v\Z'),
+        )));
+
+        $anchor = $this->service()->anchorRange('tenant:5', 1, 2, new NullDriver());
+
+        $this->assertInstanceOf(SignedEnvelope::class, $anchor);
+        $this->assertSame($anchorId, $anchor->envelope->payload['anchor_id']);
+        $this->assertArrayNotHasKey($anchorId, iterator_to_array($this->claimStore->reclaimExpired(0)));
+    }
+
+    public function test_live_uncompleted_claim_without_envelope_still_skips(): void
+    {
+        $chain = $this->chain();
+        $chain->record('t1', []);
+        $chain->record('t2', []);
+        $anchorId = $this->anchorIdFor(1, 2);
+        $this->assertTrue($this->claimStore->claim($anchorId, $this->foreignClaim(
+            claimedAt: (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('Y-m-d\TH:i:s.v\Z'),
+        )));
+
+        $this->assertNull($this->service()->anchorRange('tenant:5', 1, 2, new NullDriver()));
+        $this->assertNull($this->store->tail('tenant:5')?->envelope->payload['anchor_id'] ?? null);
+    }
+
+    public function test_claim_ttl_is_configurable(): void
+    {
+        $chain = $this->chain();
+        $chain->record('t1', []);
+        $anchorId = $this->anchorIdFor(1, 1);
+        $this->assertTrue($this->claimStore->claim($anchorId, $this->foreignClaim(
+            claimedAt: (new \DateTimeImmutable('-10 seconds', new \DateTimeZone('UTC')))->format('Y-m-d\TH:i:s.v\Z'),
+        )));
+        $service = new AnchorService($this->store, $this->claimStore, $this->signer, claimedBy: 'test', claimTtlSeconds: 5);
+
+        $this->assertNotNull($service->anchorRange('tenant:5', 1, 1, new NullDriver()));
+    }
+
     public function test_non_raw_store_emits_recomputed_bytes_warning(): void
     {
         $chain = $this->chain();
@@ -158,6 +202,26 @@ final class AnchorServiceTest extends TestCase
         $warnings = $service->warnings();
         $this->assertCount(1, $warnings);
         $this->assertSame(Warning::ANCHOR_OVER_RECOMPUTED_BYTES, $warnings[0]->code);
+    }
+
+    private function anchorIdFor(int $fromSeq, int $toSeq): string
+    {
+        $raw = iterator_to_array($this->store->readRawRange('tenant:5', $fromSeq, $toSeq), false);
+        $target = new AnchorTarget('tenant:5', $fromSeq, $toSeq, MerkleTree::ALGORITHM, MerkleTree::rootHex($raw));
+
+        return AnchorId::derive($target, NullDriver::NAME);
+    }
+
+    private function foreignClaim(string $claimedAt): AnchorClaim
+    {
+        return new AnchorClaim(
+            chainId: 'tenant:5',
+            fromSeq: 1,
+            toSeq: 2,
+            driver: NullDriver::NAME,
+            claimedBy: 'crashed-worker',
+            claimedAtIso8601: $claimedAt,
+        );
     }
 
     private function chain(): EvidenceChain
