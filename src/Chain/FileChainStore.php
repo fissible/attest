@@ -25,7 +25,7 @@ final class FileChainStore implements ChainStore, RawChainStore
     {
         $lockPath = $this->mapper->lockPath($chainId);
         @mkdir(dirname($lockPath), 0o700, recursive: true);
-        $lockFp = fopen($lockPath, 'cb');
+        $lockFp = @fopen($lockPath, 'cb'); // failure is reported as ChainLockUnavailable below
         if ($lockFp === false) {
             throw new ChainLockUnavailable($chainId);
         }
@@ -157,7 +157,14 @@ final class FileChainStore implements ChainStore, RawChainStore
             return null;
         }
         $last = $this->readLastLine($path);
-        return $last === null ? null : EnvelopeCodec::decodeSigned($last);
+        if ($last === null) {
+            return null;
+        }
+        try {
+            return EnvelopeCodec::decodeSigned($last);
+        } catch (\Throwable $e) {
+            throw UndecodableRecord::wrap($chainId, null, $e);
+        }
     }
 
     public function readRange(string $chainId, int $fromSeq, ?int $toSeq = null): iterable
@@ -171,19 +178,8 @@ final class FileChainStore implements ChainStore, RawChainStore
             return;
         }
         try {
-            while (($line = fgets($fp)) !== false) {
-                $line = rtrim($line, "\n");
-                if ($line === '') {
-                    continue;
-                }
-                $env = EnvelopeCodec::decodeSigned($line);
-                if ($env->envelope->seq < $fromSeq) {
-                    continue;
-                }
-                if ($toSeq !== null && $env->envelope->seq > $toSeq) {
-                    break;
-                }
-                yield $env;
+            foreach ($this->decodedLines($fp, $chainId, $fromSeq, $toSeq) as $record) {
+                yield $record['env'];
             }
         } finally {
             fclose($fp);
@@ -206,7 +202,7 @@ final class FileChainStore implements ChainStore, RawChainStore
 
         $lockPath = $this->mapper->lockPath($chainId);
         @mkdir(dirname($lockPath), 0o700, recursive: true);
-        $lockFp = fopen($lockPath, 'cb');
+        $lockFp = @fopen($lockPath, 'cb'); // failure is reported as ChainLockUnavailable below
         if ($lockFp === false) {
             throw new ChainLockUnavailable($chainId);
         }
@@ -222,22 +218,8 @@ final class FileChainStore implements ChainStore, RawChainStore
             }
 
             try {
-                while (($line = fgets($fp)) !== false) {
-                    if (! str_ends_with($line, "\n")) {
-                        break;
-                    }
-                    $raw = rtrim($line, "\r\n");
-                    if ($raw === '') {
-                        continue;
-                    }
-                    $env = EnvelopeCodec::decodeSigned($raw);
-                    if ($env->envelope->seq < $fromSeq) {
-                        continue;
-                    }
-                    if ($toSeq !== null && $env->envelope->seq > $toSeq) {
-                        break;
-                    }
-                    yield $raw;
+                foreach ($this->decodedLines($fp, $chainId, $fromSeq, $toSeq) as $record) {
+                    yield $record['raw'];
                 }
             } finally {
                 fclose($fp);
@@ -245,6 +227,55 @@ final class FileChainStore implements ChainStore, RawChainStore
         } finally {
             flock($lockFp, LOCK_UN);
             fclose($lockFp);
+        }
+    }
+
+    /**
+     * Shared line reader for readRange()/readRawRange().
+     *
+     * - Stops at a line without a trailing newline: append() always writes one,
+     *   so its absence means a torn or truncated write, never a complete record.
+     * - A line that fails to decode is assigned the sequence it occupies by
+     *   position (last decoded seq + 1). Inside the requested range that is an
+     *   UndecodableRecord; before the range it is skipped; after the range it
+     *   ends the read. A corrupt record outside [fromSeq, toSeq] therefore
+     *   cannot break a read of an intact range.
+     *
+     * @param resource $fp
+     * @return iterable<array{raw: string, env: SignedEnvelope}>
+     */
+    private function decodedLines($fp, string $chainId, int $fromSeq, ?int $toSeq): iterable
+    {
+        $lastSeq = 0;
+        while (($line = fgets($fp)) !== false) {
+            if (! str_ends_with($line, "\n")) {
+                break;
+            }
+            $raw = rtrim($line, "\r\n");
+            if ($raw === '') {
+                continue;
+            }
+            try {
+                $env = EnvelopeCodec::decodeSigned($raw);
+            } catch (\Throwable $e) {
+                $assumedSeq = $lastSeq + 1;
+                if ($toSeq !== null && $assumedSeq > $toSeq) {
+                    break;
+                }
+                if ($assumedSeq < $fromSeq) {
+                    $lastSeq = $assumedSeq;
+                    continue;
+                }
+                throw UndecodableRecord::wrap($chainId, $assumedSeq, $e);
+            }
+            $lastSeq = $env->envelope->seq;
+            if ($env->envelope->seq < $fromSeq) {
+                continue;
+            }
+            if ($toSeq !== null && $env->envelope->seq > $toSeq) {
+                break;
+            }
+            yield ['raw' => $raw, 'env' => $env];
         }
     }
 
@@ -287,6 +318,17 @@ final class FileChainStore implements ChainStore, RawChainStore
             if ($size === false || $size === 0) {
                 return null;
             }
+            // append() always terminates a record with "\n"; a file that does
+            // not end with one has a torn or truncated last line, which is not
+            // a record. Drop it and report the last complete line instead.
+            fseek($fp, $size - 1);
+            if (fread($fp, 1) !== "\n") {
+                $lastNewline = $this->lastNewlinePosition($fp, $size);
+                if ($lastNewline === null) {
+                    return null;
+                }
+                $size = $lastNewline + 1;
+            }
             $chunk = 8192;
             $pos = $size;
             $buffer = '';
@@ -308,5 +350,31 @@ final class FileChainStore implements ChainStore, RawChainStore
         } finally {
             fclose($fp);
         }
+    }
+
+    /**
+     * Offset of the last "\n" strictly before $end, or null if there is none.
+     *
+     * @param resource $fp
+     */
+    private function lastNewlinePosition($fp, int $end): ?int
+    {
+        $chunk = 8192;
+        $pos = $end;
+        while ($pos > 0) {
+            $read = min($chunk, $pos);
+            $pos -= $read;
+            fseek($fp, $pos);
+            $buffer = fread($fp, $read);
+            if ($buffer === false) {
+                return null;
+            }
+            $nl = strrpos($buffer, "\n");
+            if ($nl !== false) {
+                return $pos + $nl;
+            }
+        }
+
+        return null;
     }
 }

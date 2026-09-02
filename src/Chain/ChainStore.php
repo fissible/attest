@@ -23,9 +23,23 @@ interface ChainStore
      */
     public function append(string $chainId, callable $buildAndSign): SignedEnvelope;
 
+    /**
+     * @throws UndecodableRecord if the stored tail record cannot be decoded
+     */
     public function tail(string $chainId): ?SignedEnvelope;
 
-    /** @return iterable<SignedEnvelope> */
+    /**
+     * Yields decoded envelopes for [fromSeq, toSeq] in seq order.
+     *
+     * A stored record inside the requested range that cannot be decoded must
+     * surface as UndecodableRecord (with the sequence it occupies by position),
+     * never as the underlying JSON/type/base64 exception. Records outside the
+     * range should not affect the read. The Verifier relies on this to report
+     * INVALID_CHAIN at the broken sequence.
+     *
+     * @return iterable<SignedEnvelope>
+     * @throws UndecodableRecord
+     */
     public function readRange(string $chainId, int $fromSeq, ?int $toSeq = null): iterable;
 
     /** @return iterable<string> chain IDs */

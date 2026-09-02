@@ -9,6 +9,7 @@ use Fissible\Attest\Anchor\AnchorOutcome;
 use Fissible\Attest\Anchor\AnchorTarget;
 use Fissible\Attest\Chain\ChainStore;
 use Fissible\Attest\Chain\RawChainStore;
+use Fissible\Attest\Chain\UndecodableRecord;
 use Fissible\Attest\Envelope\EnvelopeCodec;
 use Fissible\Attest\Envelope\SignedEnvelope;
 use Fissible\Attest\Headers\HeaderProviderSet;
@@ -78,6 +79,21 @@ final class Verifier
                     'Missing previous envelope at sequence ' . ($fromSeq - 1),
                 );
             }
+            if ($previousRecord->signed === null) {
+                return $this->invalidChain(
+                    $chainId,
+                    $fromSeq,
+                    $toSeq,
+                    0,
+                    0,
+                    0,
+                    0,
+                    $warnings,
+                    [],
+                    $fromSeq - 1,
+                    'Stored record at sequence ' . ($fromSeq - 1) . ' could not be decoded: ' . $previousRecord->decodeError,
+                );
+            }
             if ($previousRecord->rawBytes !== null
                 && $previousRecord->rawBytes !== $previousRecord->signed->signedCanonicalBytes()
             ) {
@@ -111,6 +127,21 @@ final class Verifier
 
         foreach ($records as $record) {
             $signed = $record->signed;
+            if ($signed === null) {
+                return $this->invalidChain(
+                    $chainId,
+                    $fromSeq,
+                    $toSeq,
+                    $count,
+                    $trustedSignatures,
+                    $untrustedSignatures,
+                    $anchorEnvelopes,
+                    $warnings,
+                    $signatureResults,
+                    $expectedSeq,
+                    "Stored record at sequence $expectedSeq could not be decoded: " . $record->decodeError,
+                );
+            }
             $seq = $signed->envelope->seq;
 
             if ($record->rawBytes !== null && $record->rawBytes !== $signed->signedCanonicalBytes()) {
@@ -314,35 +345,65 @@ final class Verifier
     }
 
     /**
+     * Reads stored records for the range. A record the store (or this method)
+     * cannot decode is yielded with signed=null and the decode error, and ends
+     * the read: the caller reports INVALID_CHAIN at the sequence it expected
+     * there, which is the strongest statement possible about unparseable bytes.
+     *
      * @param list<Warning> $warnings
-     * @return iterable<object{signed: SignedEnvelope, rawBytes: ?string}>
+     * @return iterable<object{signed: ?SignedEnvelope, rawBytes: ?string, decodeError: ?string}>
      */
     private function readRecords(string $chainId, int $fromSeq, ?int $toSeq, array &$warnings): iterable
     {
-        if ($this->store instanceof RawChainStore) {
-            foreach ($this->store->readRawRange($chainId, $fromSeq, $toSeq) as $rawBytes) {
-                yield (object) [
-                    'signed' => EnvelopeCodec::decodeSigned($rawBytes),
-                    'rawBytes' => $rawBytes,
-                ];
+        try {
+            if ($this->store instanceof RawChainStore) {
+                foreach ($this->store->readRawRange($chainId, $fromSeq, $toSeq) as $rawBytes) {
+                    try {
+                        $signed = EnvelopeCodec::decodeSigned($rawBytes);
+                    } catch (\Throwable $e) {
+                        yield self::undecodableRecord($e->getMessage());
+
+                        return;
+                    }
+                    yield (object) [
+                        'signed' => $signed,
+                        'rawBytes' => $rawBytes,
+                        'decodeError' => null,
+                    ];
+                }
+
+                return;
             }
 
-            return;
-        }
+            $this->addNoRawBytesWarning($warnings, $chainId);
 
-        $this->addNoRawBytesWarning($warnings, $chainId);
-
-        foreach ($this->store->readRange($chainId, $fromSeq, $toSeq) as $signed) {
-            yield (object) [
-                'signed' => $signed,
-                'rawBytes' => null,
-            ];
+            foreach ($this->store->readRange($chainId, $fromSeq, $toSeq) as $signed) {
+                yield (object) [
+                    'signed' => $signed,
+                    'rawBytes' => null,
+                    'decodeError' => null,
+                ];
+            }
+        } catch (UndecodableRecord $e) {
+            yield self::undecodableRecord($e->reason);
         }
     }
 
     /**
+     * @return object{signed: null, rawBytes: null, decodeError: string}
+     */
+    private static function undecodableRecord(string $reason): object
+    {
+        return (object) [
+            'signed' => null,
+            'rawBytes' => null,
+            'decodeError' => $reason,
+        ];
+    }
+
+    /**
      * @param list<Warning> $warnings
-     * @return ?object{signed: SignedEnvelope, rawBytes: ?string}
+     * @return ?object{signed: ?SignedEnvelope, rawBytes: ?string, decodeError: ?string}
      */
     private function readSingleRecord(string $chainId, int $seq, array &$warnings): ?object
     {
@@ -400,7 +461,7 @@ final class Verifier
             rootHex: MerkleTree::rootHex($canonicalBytes),
         );
 
-        $classifiedAnchors = $this->anchorEnvelopesFor($chainId, $toSeq, $rangeEnvelopes, $signatureResults);
+        $classifiedAnchors = $this->anchorEnvelopesFor($chainId, $toSeq, $rangeEnvelopes, $signatureResults, $warnings);
         $rawEnvelopes = array_map(
             static fn (ClassifiedDetachedAnchor $c): SignedEnvelope => $c->envelope,
             $classifiedAnchors,
@@ -803,6 +864,7 @@ final class Verifier
     /**
      * @param list<SignedEnvelope> $rangeEnvelopes
      * @param list<SignatureVerificationResult> $rangeSignatureResults parallel to $rangeEnvelopes
+     * @param list<Warning> $warnings (mutated)
      * @return list<ClassifiedDetachedAnchor>
      */
     private function anchorEnvelopesFor(
@@ -810,6 +872,7 @@ final class Verifier
         int $toSeq,
         array $rangeEnvelopes,
         array $rangeSignatureResults,
+        array &$warnings,
     ): array {
         $classified = [];
 
@@ -823,12 +886,23 @@ final class Verifier
             $classified[] = new ClassifiedDetachedAnchor($signed, $classification, $result);
         }
 
-        // Post-range anchor envelopes: classify via the detached verifier
+        // Post-range anchor envelopes: classify via the detached verifier.
+        // A record past the verified range that cannot be decoded is outside
+        // what this verification asserts; stopping there is fail-safe because
+        // anchors found afterwards could only have raised the outcome.
         $postRange = [];
-        foreach ($this->store->readRange($chainId, $toSeq + 1) as $signed) {
-            if (str_starts_with($signed->envelope->type, 'attest.anchor.')) {
-                $postRange[] = $signed;
+        try {
+            foreach ($this->store->readRange($chainId, $toSeq + 1) as $signed) {
+                if (str_starts_with($signed->envelope->type, 'attest.anchor.')) {
+                    $postRange[] = $signed;
+                }
             }
+        } catch (UndecodableRecord $e) {
+            $warnings[] = new Warning(
+                Warning::UNDECODABLE_RECORD_IGNORED,
+                'A stored record after the verified range could not be decoded; anchor envelopes beyond it were not considered.',
+                ['chain_id' => $chainId, 'seq' => $e->seq, 'reason' => $e->reason],
+            );
         }
         foreach ($this->explicitDetachedEnvelopes as $signed) {
             if (! str_starts_with($signed->envelope->type, 'attest.anchor.')) {

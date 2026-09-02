@@ -6,6 +6,7 @@ namespace Fissible\Attest\Cli\Command;
 use Fissible\Attest\Chain\FileChainStore;
 use Fissible\Attest\Cli\Output\HumanResultEmitter;
 use Fissible\Attest\Cli\Output\JsonResultEmitter;
+use Fissible\Attest\Cli\Output\RuntimeErrorEmitter;
 use Fissible\Attest\Cli\Support\AnchorDriverFactory;
 use Fissible\Attest\Cli\Support\HeaderProviderFactory;
 use Fissible\Attest\Cli\Support\MinAnchorOption;
@@ -83,9 +84,21 @@ final class VerifyCommand extends Command
                 return 1;
             }
 
-            $fromSeq = (int) ($input->getOption('from') ?? 1);
+            $fromRaw = $input->getOption('from') ?? '1';
+            if (! is_string($fromRaw) || ! ctype_digit($fromRaw) || (int) $fromRaw < 1) {
+                $output->writeln('error: --from must be an integer >= 1');
+                return 1;
+            }
+            $fromSeq = (int) $fromRaw;
             $toRaw = $input->getOption('to');
-            $toSeq = $toRaw !== null ? (int) $toRaw : null;
+            $toSeq = null;
+            if ($toRaw !== null) {
+                if (! is_string($toRaw) || ! ctype_digit($toRaw) || (int) $toRaw < $fromSeq) {
+                    $output->writeln('error: --to must be an integer >= --from');
+                    return 1;
+                }
+                $toSeq = (int) $toRaw;
+            }
 
             $minAnchor = MinAnchorOption::parse($input->getOption('min-anchor'));
 
@@ -119,11 +132,19 @@ final class VerifyCommand extends Command
             headers: $headers,
         );
 
-        $result = $verifier->verifyChain($chainId, $fromSeq, $toSeq);
+        $json = (bool) $input->getOption('json');
+        try {
+            $result = $verifier->verifyChain($chainId, $fromSeq, $toSeq);
+        } catch (\Throwable $e) {
+            // Decode failures inside the range are already VerificationOutcomes
+            // (INVALID_CHAIN); anything that still escapes is a runtime error
+            // before an outcome existed, which the contract maps to exit 1.
+            return RuntimeErrorEmitter::emit('verify', $e, $json, $output);
+        }
 
         $exit = self::exitCodeFor($result->outcome, (bool) $input->getOption('allow-untrusted'));
 
-        $emitter = $input->getOption('json') ? new JsonResultEmitter() : new HumanResultEmitter();
+        $emitter = $json ? new JsonResultEmitter() : new HumanResultEmitter();
         $emitter->emit('verify', $result, $exit, $output);
 
         return $exit;

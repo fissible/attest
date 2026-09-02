@@ -3,7 +3,9 @@ declare(strict_types=1);
 
 namespace Fissible\Attest\Tests\Verification;
 
+use Fissible\Attest\Anchor\AnchorOutcome;
 use Fissible\Attest\Chain\AppendContext;
+use Fissible\Attest\Chain\RawChainStore;
 use Fissible\Attest\Chain\ChainStore;
 use Fissible\Attest\Chain\EvidenceChain;
 use Fissible\Attest\Chain\FileChainStore;
@@ -251,6 +253,134 @@ final class VerifierChainTest extends TestCase
         $this->assertSame(VerificationOutcome::INVALID_CHAIN, $result->outcome);
         $this->assertSame(3, $result->brokenAtSeq);
         $this->assertStringContainsString('Missing envelope', (string) $result->message);
+    }
+
+    public function test_undecodable_record_returns_invalid_chain_at_that_seq(): void
+    {
+        $records = $this->appendRecords(3);
+        $this->writeRawChain([$records[0]->signedCanonicalBytes(), 'this is not json', $records[2]->signedCanonicalBytes()]);
+
+        $result = $this->verifier()->verifyChain('tenant:5', 1, 3);
+
+        $this->assertSame(VerificationOutcome::INVALID_CHAIN, $result->outcome);
+        $this->assertSame(2, $result->brokenAtSeq);
+        $this->assertSame(1, $result->chainStats->envelopeCount);
+        $this->assertStringContainsString('could not be decoded', (string) $result->message);
+    }
+
+    public function test_type_mismatched_field_returns_invalid_chain(): void
+    {
+        $records = $this->appendRecords(2);
+        $this->writeRawChain([
+            $records[0]->signedCanonicalBytes(),
+            str_replace('"seq":2', '"seq":"2"', $records[1]->signedCanonicalBytes()),
+        ]);
+
+        $result = $this->verifier()->verifyChain('tenant:5');
+
+        $this->assertSame(VerificationOutcome::INVALID_CHAIN, $result->outcome);
+        $this->assertSame(2, $result->brokenAtSeq);
+    }
+
+    public function test_malformed_signature_encoding_returns_invalid_chain(): void
+    {
+        $records = $this->appendRecords(2);
+        $mangled = preg_replace('/"sig":"base64:[^"]+"/', '"sig":"base64:!!!"', $records[1]->signedCanonicalBytes());
+        $this->assertIsString($mangled);
+        $this->writeRawChain([$records[0]->signedCanonicalBytes(), $mangled]);
+
+        $result = $this->verifier()->verifyChain('tenant:5');
+
+        $this->assertSame(VerificationOutcome::INVALID_CHAIN, $result->outcome);
+        $this->assertSame(2, $result->brokenAtSeq);
+    }
+
+    public function test_undecodable_previous_record_returns_invalid_chain(): void
+    {
+        $records = $this->appendRecords(3);
+        $this->writeRawChain([$records[0]->signedCanonicalBytes(), 'garbage', $records[2]->signedCanonicalBytes()]);
+
+        $result = $this->verifier()->verifyChain('tenant:5', 3, 3);
+
+        $this->assertSame(VerificationOutcome::INVALID_CHAIN, $result->outcome);
+        $this->assertSame(2, $result->brokenAtSeq);
+    }
+
+    public function test_undecodable_record_after_range_is_ignored_without_anchor_policy(): void
+    {
+        $records = $this->appendRecords(2);
+        $this->writeRawChain([$records[0]->signedCanonicalBytes(), $records[1]->signedCanonicalBytes(), 'garbage']);
+
+        $result = $this->verifier()->verifyChain('tenant:5', 1, 2);
+
+        $this->assertSame(VerificationOutcome::VERIFIED, $result->outcome);
+    }
+
+    public function test_undecodable_record_after_range_adds_warning_under_anchor_policy(): void
+    {
+        $records = $this->appendRecords(2);
+        $this->writeRawChain([$records[0]->signedCanonicalBytes(), $records[1]->signedCanonicalBytes(), 'garbage']);
+        $verifier = new Verifier(
+            $this->store,
+            new SignatureVerifier([new TrustedKey($this->keyPair->publicKey, keyId: 'app-prod')]),
+            new VerificationPolicy(minAnchorOutcome: AnchorOutcome::LOCAL_ONLY),
+        );
+
+        $result = $verifier->verifyChain('tenant:5', 1, 2);
+
+        $this->assertSame(VerificationOutcome::ANCHOR_BELOW_MIN, $result->outcome);
+        $codes = array_map(static fn (Warning $w): string => $w->code, $result->warnings);
+        $this->assertContains(Warning::UNDECODABLE_RECORD_IGNORED, $codes);
+    }
+
+    public function test_raw_store_yielding_undecodable_bytes_returns_invalid_chain(): void
+    {
+        $records = $this->appendRecords(2);
+        $store = new class([$records[0]->signedCanonicalBytes(), 'garbage']) implements ChainStore, RawChainStore {
+            /** @param list<string> $lines */
+            public function __construct(private array $lines)
+            {
+            }
+
+            public function append(string $chainId, callable $buildAndSign): SignedEnvelope
+            {
+                throw new \LogicException('read-only');
+            }
+
+            public function tail(string $chainId): ?SignedEnvelope
+            {
+                return null;
+            }
+
+            public function readRange(string $chainId, int $fromSeq, ?int $toSeq = null): iterable
+            {
+                return [];
+            }
+
+            public function readRawRange(string $chainId, int $fromSeq, ?int $toSeq = null): iterable
+            {
+                yield from $this->lines;
+            }
+
+            public function listChains(): iterable
+            {
+                return ['tenant:5'];
+            }
+
+            public function exists(string $chainId): bool
+            {
+                return true;
+            }
+        };
+        $verifier = new Verifier(
+            $store,
+            new SignatureVerifier([new TrustedKey($this->keyPair->publicKey, keyId: 'app-prod')]),
+        );
+
+        $result = $verifier->verifyChain('tenant:5');
+
+        $this->assertSame(VerificationOutcome::INVALID_CHAIN, $result->outcome);
+        $this->assertSame(2, $result->brokenAtSeq);
     }
 
     /**
