@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Fissible\Attest\Anchor;
 
 use Fissible\Attest\Anchor\OpenTimestamps\CalendarUnavailable;
+use Fissible\Attest\Anchor\OpenTimestamps\CalendarUpgradeAttempt;
 use Fissible\Attest\Anchor\OpenTimestamps\OpenTimestampsAttestation;
 use Fissible\Attest\Anchor\OpenTimestamps\OpenTimestampsBranch;
 use Fissible\Attest\Anchor\OpenTimestamps\OpenTimestampsCalendarClient;
@@ -23,6 +24,8 @@ use Fissible\Attest\Verification\Warning;
 final class OpenTimestampsDriver implements AnchorDriver
 {
     public const NAME = 'opentimestamps';
+
+    private ?CalendarUpgradeAttempt $lastUpgradeAttempt = null;
 
     /**
      * @param list<string> $calendarUrls
@@ -102,19 +105,32 @@ final class OpenTimestampsDriver implements AnchorDriver
 
     public function upgrade(AnchorReceipt $receipt): AnchorReceipt
     {
-        if (! $this->supports($receipt)) {
-            throw new \InvalidArgumentException('OpenTimestampsDriver does not support receipt driver: ' . $receipt->driverName);
+        $attempted = 0;
+        $unreachable = 0;
+        $warnings = [];
+
+        try {
+            if (! $this->supports($receipt)) {
+                throw new \InvalidArgumentException('OpenTimestampsDriver does not support receipt driver: ' . $receipt->driverName);
+            }
+
+            $proof = OpenTimestampsCodec::decodeDetached($receipt->receiptBytes, $receipt->target->rootHex);
+            $upgradedTimestamp = $this->upgradeTimestamp($proof->timestamp, $attempted, $unreachable, $warnings);
+            $upgradedProof = new OpenTimestampsProof($proof->fileDigest, $upgradedTimestamp);
+
+            if (OpenTimestampsCodec::encodeDetached($upgradedProof) === $receipt->receiptBytes) {
+                return $receipt;
+            }
+
+            return $this->receipt($receipt->target, $upgradedProof);
+        } finally {
+            $this->lastUpgradeAttempt = new CalendarUpgradeAttempt($attempted, $unreachable, $warnings);
         }
+    }
 
-        $proof = OpenTimestampsCodec::decodeDetached($receipt->receiptBytes, $receipt->target->rootHex);
-        $upgradedTimestamp = $this->upgradeTimestamp($proof->timestamp);
-        $upgradedProof = new OpenTimestampsProof($proof->fileDigest, $upgradedTimestamp);
-
-        if (OpenTimestampsCodec::encodeDetached($upgradedProof) === $receipt->receiptBytes) {
-            return $receipt;
-        }
-
-        return $this->receipt($receipt->target, $upgradedProof);
+    public function lastUpgradeAttempt(): ?CalendarUpgradeAttempt
+    {
+        return $this->lastUpgradeAttempt;
     }
 
     public function verify(AnchorReceipt $receipt, HeaderProviderSet $headers): AnchorVerification
@@ -302,7 +318,15 @@ final class OpenTimestampsDriver implements AnchorDriver
         return $receipt->driverName === $this->name();
     }
 
-    private function upgradeTimestamp(OpenTimestampsTimestamp $timestamp): OpenTimestampsTimestamp
+    /**
+     * @param list<Warning> $warnings
+     */
+    private function upgradeTimestamp(
+        OpenTimestampsTimestamp $timestamp,
+        int &$attempted,
+        int &$unreachable,
+        array &$warnings,
+    ): OpenTimestampsTimestamp
     {
         $attestations = [];
         foreach ($timestamp->attestations as $attestation) {
@@ -312,19 +336,29 @@ final class OpenTimestampsDriver implements AnchorDriver
             }
 
             try {
+                $attempted++;
                 $upgraded = $this->calendarClient->upgrade($attestation->uri, $timestamp->message);
                 $attestations = [...$attestations, ...$upgraded->attestations];
                 foreach ($upgraded->branches as $branch) {
                     $timestamp = $timestamp->withOperation($branch->operation, $branch->timestamp);
                 }
-            } catch (CalendarUnavailable) {
+            } catch (CalendarUnavailable $e) {
+                $unreachable++;
+                $warnings[] = new Warning(
+                    Warning::CALENDAR_UNAVAILABLE,
+                    'OpenTimestamps calendar could not be reached during upgrade.',
+                    ['calendar' => $attestation->uri, 'error' => $e->getMessage()],
+                );
                 $attestations[] = $attestation;
             }
         }
 
         $branches = [];
         foreach ($timestamp->branches as $branch) {
-            $branches[] = new OpenTimestampsBranch($branch->operation, $this->upgradeTimestamp($branch->timestamp));
+            $branches[] = new OpenTimestampsBranch(
+                $branch->operation,
+                $this->upgradeTimestamp($branch->timestamp, $attempted, $unreachable, $warnings),
+            );
         }
 
         return new OpenTimestampsTimestamp($timestamp->message, $attestations, $branches);
