@@ -8,6 +8,7 @@ use Fissible\Attest\Envelope\EvidenceEnvelope;
 use Fissible\Attest\Envelope\SignedEnvelope;
 use Fissible\Attest\Signing\KeyPair;
 use Fissible\Attest\Signing\SodiumSigner;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 final class EnvelopeCodecTest extends TestCase
@@ -92,5 +93,24 @@ final class EnvelopeCodecTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('base64');
         EnvelopeCodec::decodeSigned($bad);
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function unsupportedVersions(): iterable
+    {
+        yield 'v=2' => ['2'];
+        yield 'v="1"' => ['"1"'];
+        yield 'v=null' => ['null'];
+    }
+
+    #[DataProvider('unsupportedVersions')]
+    public function test_decode_rejects_unsupported_envelope_version(string $vJson): void
+    {
+        $bytes = '{"v":' . $vJson . ',"id":"x","chain":"c","seq":1,"ts":"t","type":"t","payload":[],"prev_hash":null,"key_id":"k","sig_alg":"ed25519","sig":"base64:AA=="}';
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Unsupported envelope version');
+        EnvelopeCodec::decodeSigned($bytes);
     }
 }
