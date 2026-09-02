@@ -406,16 +406,280 @@ final class UpgradeCommandTest extends TestCase
         $display = $tester->getDisplay();
         self::assertSame(0, $exitCode, 'Expected best-effort sweep exit 0; output: ' . $display);
 
+        // Issue #33: an anchor whose only calendar was unreachable was never
+        // checked, so it is a failure ("calendar unavailable"), not "unchanged".
+        // The sweep still continues and still exits 0 because the other anchor
+        // succeeded.
         $payload = json_decode($display, true);
         self::assertIsArray($payload, 'Output must be valid JSON');
         self::assertCount(1, $payload['upgraded']);
-        self::assertCount(1, $payload['unchanged']);
-        self::assertSame([], $payload['failed']);
-        self::assertSame($first->anchorId, $payload['unchanged'][0]['anchor_id']);
-        self::assertSame($firstEnvelope->envelope->id, $payload['unchanged'][0]['envelope_id']);
-        self::assertSame('pending', $payload['unchanged'][0]['state']);
+        self::assertSame([], $payload['unchanged']);
+        self::assertCount(1, $payload['failed']);
+        self::assertSame($first->anchorId, $payload['failed'][0]['anchor_id']);
+        self::assertSame($firstEnvelope->envelope->id, $payload['failed'][0]['envelope_id']);
+        self::assertStringStartsWith('calendar unavailable', $payload['failed'][0]['error']);
         self::assertSame($second->anchorId, $payload['upgraded'][0]['anchor_id']);
+        self::assertSame(
+            [$first->anchorId . ': calendar unavailable: https://calendar.example: OpenTimestamps calendar returned HTTP 503'],
+            $payload['warnings'],
+        );
         self::assertCount(2, $transactions);
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Issue #33: unreachable calendars are distinguishable from "not yet confirmed"
+    // ────────────────────────────────────────────────────────────────────────
+
+    public function test_anchor_id_exits_4_when_no_calendar_could_be_reached(): void
+    {
+        $store = $this->buildChain('down', 2);
+        $receipt = $this->otsReceipt($store, 'down', 1, 2, ProofState::PENDING);
+        $envelope = $this->appendOtsAnchorEnvelope($store, 'down', $receipt);
+        $transactions = [];
+
+        $tester = $this->makeTester(function () use (&$transactions): OpenTimestampsCalendarClient {
+            return $this->calendarClient([new Response(503, [], 'calendar down')], $transactions);
+        });
+        $exitCode = $tester->execute([
+            ...$this->baseArgs('down'),
+            '--anchor-id' => $receipt->anchorId,
+            '--calendar-url' => ['https://calendar.example'],
+            '--json' => true,
+        ]);
+
+        $display = $tester->getDisplay();
+        self::assertSame(4, $exitCode, 'Unreachable calendar must not look like success; output: ' . $display);
+
+        $payload = json_decode($display, true);
+        self::assertIsArray($payload);
+        self::assertSame([], $payload['upgraded']);
+        self::assertSame([], $payload['unchanged']);
+        self::assertCount(1, $payload['failed']);
+        self::assertSame($receipt->anchorId, $payload['failed'][0]['anchor_id']);
+        self::assertSame($envelope->envelope->id, $payload['failed'][0]['envelope_id']);
+        self::assertStringStartsWith('calendar unavailable', $payload['failed'][0]['error']);
+        self::assertSame(
+            [$receipt->anchorId . ': calendar unavailable: https://calendar.example: OpenTimestamps calendar returned HTTP 503'],
+            $payload['warnings'],
+        );
+
+        // Nothing was appended to the chain.
+        $tail = $store->tail('down');
+        self::assertNotNull($tail);
+        self::assertSame($envelope->envelope->id, $tail->envelope->id);
+    }
+
+    public function test_anchor_id_exits_0_unchanged_when_calendar_answers_not_yet(): void
+    {
+        $store = $this->buildChain('notyet', 2);
+        $receipt = $this->otsReceipt($store, 'notyet', 1, 2, ProofState::PENDING);
+        $envelope = $this->appendOtsAnchorEnvelope($store, 'notyet', $receipt);
+        $transactions = [];
+
+        $tester = $this->makeTester(function () use (&$transactions): OpenTimestampsCalendarClient {
+            return $this->calendarClient(
+                [new Response(200, ['Content-Type' => OpenTimestampsCalendarClient::CONTENT_TYPE], $this->pendingTimestampBytesFor('https://calendar.example'))],
+                $transactions,
+            );
+        });
+        $exitCode = $tester->execute([
+            ...$this->baseArgs('notyet'),
+            '--anchor-id' => $receipt->anchorId,
+            '--calendar-url' => ['https://calendar.example'],
+            '--json' => true,
+        ]);
+
+        $display = $tester->getDisplay();
+        self::assertSame(0, $exitCode, 'A reachable calendar that has not confirmed yet is not an error; output: ' . $display);
+
+        $payload = json_decode($display, true);
+        self::assertIsArray($payload);
+        self::assertSame([], $payload['failed']);
+        self::assertCount(1, $payload['unchanged']);
+        self::assertSame($receipt->anchorId, $payload['unchanged'][0]['anchor_id']);
+        self::assertSame($envelope->envelope->id, $payload['unchanged'][0]['envelope_id']);
+        self::assertSame('pending', $payload['unchanged'][0]['state']);
+        self::assertSame([], $payload['warnings']);
+    }
+
+    public function test_all_pending_exits_4_when_every_calendar_was_unreachable(): void
+    {
+        $store = $this->buildChain('alldown', 4);
+        $first = $this->otsReceipt($store, 'alldown', 1, 2, ProofState::PENDING);
+        $second = $this->otsReceipt($store, 'alldown', 3, 4, ProofState::PENDING);
+        $this->appendOtsAnchorEnvelope($store, 'alldown', $first);
+        $this->appendOtsAnchorEnvelope($store, 'alldown', $second);
+        $transactions = [];
+
+        $tester = $this->makeTester(function () use (&$transactions): OpenTimestampsCalendarClient {
+            return $this->calendarClient(
+                [new Response(503, [], 'down'), new Response(503, [], 'down')],
+                $transactions,
+            );
+        });
+        $exitCode = $tester->execute([
+            ...$this->baseArgs('alldown'),
+            '--all-pending' => true,
+            '--calendar-url' => ['https://calendar.example'],
+            '--json' => true,
+        ]);
+
+        $display = $tester->getDisplay();
+        self::assertSame(4, $exitCode, 'A sweep that could not reach any calendar checked nothing; output: ' . $display);
+
+        $payload = json_decode($display, true);
+        self::assertIsArray($payload);
+        self::assertSame([], $payload['upgraded']);
+        self::assertSame([], $payload['unchanged']);
+        self::assertCount(2, $payload['failed']);
+        self::assertSame(
+            [$first->anchorId, $second->anchorId],
+            array_column($payload['failed'], 'anchor_id'),
+        );
+        self::assertSame(
+            [
+                $first->anchorId . ': calendar unavailable: https://calendar.example: OpenTimestamps calendar returned HTTP 503',
+                $second->anchorId . ': calendar unavailable: https://calendar.example: OpenTimestamps calendar returned HTTP 503',
+            ],
+            $payload['warnings'],
+        );
+        self::assertCount(2, $transactions);
+    }
+
+    public function test_anchor_with_two_unreachable_calendars_fails_once_with_a_warning_per_calendar(): void
+    {
+        $store = $this->buildChain('two-down', 2);
+        $receipt = $this->otsReceiptWithPendingUris($store, 'two-down', 1, 2, ['https://a.example', 'https://b.example']);
+        $envelope = $this->appendOtsAnchorEnvelope($store, 'two-down', $receipt);
+        $transactions = [];
+
+        $tester = $this->makeTester(function () use (&$transactions): OpenTimestampsCalendarClient {
+            return $this->calendarClient(
+                [new Response(503, [], 'down'), new Response(502, [], 'bad gateway')],
+                $transactions,
+            );
+        });
+        $exitCode = $tester->execute([
+            ...$this->baseArgs('two-down'),
+            '--anchor-id' => $receipt->anchorId,
+            '--calendar-url' => ['https://a.example', 'https://b.example'],
+            '--json' => true,
+        ]);
+
+        $display = $tester->getDisplay();
+        self::assertSame(4, $exitCode, $display);
+
+        $payload = json_decode($display, true);
+        self::assertIsArray($payload);
+        self::assertCount(1, $payload['failed']);
+        self::assertSame($receipt->anchorId, $payload['failed'][0]['anchor_id']);
+        self::assertSame($envelope->envelope->id, $payload['failed'][0]['envelope_id']);
+        self::assertStringStartsWith('calendar unavailable', $payload['failed'][0]['error']);
+        self::assertSame(
+            [
+                $receipt->anchorId . ': calendar unavailable: https://a.example: OpenTimestamps calendar returned HTTP 503',
+                $receipt->anchorId . ': calendar unavailable: https://b.example: OpenTimestamps calendar returned HTTP 502',
+            ],
+            $payload['warnings'],
+        );
+        self::assertCount(2, $transactions);
+    }
+
+    public function test_partially_unreachable_calendars_leave_anchor_unchanged_with_warning(): void
+    {
+        $store = $this->buildChain('partial-cal', 2);
+        $receipt = $this->otsReceiptWithPendingUris($store, 'partial-cal', 1, 2, ['https://a.example', 'https://b.example']);
+        $this->appendOtsAnchorEnvelope($store, 'partial-cal', $receipt);
+        $transactions = [];
+
+        $tester = $this->makeTester(function () use (&$transactions): OpenTimestampsCalendarClient {
+            return $this->calendarClient(
+                [
+                    new Response(503, [], 'down'),
+                    new Response(200, ['Content-Type' => OpenTimestampsCalendarClient::CONTENT_TYPE], $this->pendingTimestampBytesFor('https://b.example')),
+                ],
+                $transactions,
+            );
+        });
+        $exitCode = $tester->execute([
+            ...$this->baseArgs('partial-cal'),
+            '--anchor-id' => $receipt->anchorId,
+            '--calendar-url' => ['https://a.example', 'https://b.example'],
+            '--json' => true,
+        ]);
+
+        $display = $tester->getDisplay();
+        self::assertSame(0, $exitCode, 'One reachable calendar means the receipt was checked; output: ' . $display);
+
+        $payload = json_decode($display, true);
+        self::assertIsArray($payload);
+        self::assertSame([], $payload['failed']);
+        self::assertCount(1, $payload['unchanged']);
+        self::assertSame(
+            [$receipt->anchorId . ': calendar unavailable: https://a.example: OpenTimestamps calendar returned HTTP 503'],
+            $payload['warnings'],
+        );
+        self::assertCount(2, $transactions);
+    }
+
+    public function test_human_output_prints_calendar_warning_and_exits_4(): void
+    {
+        $store = $this->buildChain('human', 2);
+        $receipt = $this->otsReceipt($store, 'human', 1, 2, ProofState::PENDING);
+        $this->appendOtsAnchorEnvelope($store, 'human', $receipt);
+        $transactions = [];
+
+        $tester = $this->makeTester(function () use (&$transactions): OpenTimestampsCalendarClient {
+            return $this->calendarClient([new Response(503, [], 'down')], $transactions);
+        });
+        $exitCode = $tester->execute([
+            ...$this->baseArgs('human'),
+            '--anchor-id' => $receipt->anchorId,
+            '--calendar-url' => ['https://calendar.example'],
+        ]);
+
+        $display = $tester->getDisplay();
+        self::assertSame(4, $exitCode);
+        self::assertStringContainsString('upgraded 0, unchanged 0, failed 1', $display);
+        self::assertStringContainsString('warning: ', $display);
+        self::assertStringContainsString('calendar unavailable', $display);
+        self::assertStringContainsString('https://calendar.example', $display);
+    }
+
+    /**
+     * @param list<string> $pendingUris
+     */
+    private function otsReceiptWithPendingUris(
+        FileChainStore $store,
+        string $chainId,
+        int $fromSeq,
+        int $toSeq,
+        array $pendingUris,
+    ): AnchorReceipt {
+        $target = $this->targetFor($store, $chainId, $fromSeq, $toSeq);
+        $rootBytes = hex2bin($target->rootHex);
+        self::assertIsString($rootBytes);
+
+        $timestamp = new OpenTimestampsTimestamp($rootBytes);
+        foreach ($pendingUris as $uri) {
+            $timestamp = $timestamp->withAttestation(OpenTimestampsAttestation::pending($uri));
+        }
+
+        return new AnchorReceipt(
+            driverName: OpenTimestampsDriver::NAME,
+            target: $target,
+            state: ProofState::PENDING,
+            receiptBytes: OpenTimestampsCodec::encodeDetached(new OpenTimestampsProof($rootBytes, $timestamp)),
+            createdAtIso8601: '2026-06-06T00:00:00.000Z',
+        );
+    }
+
+    private function pendingTimestampBytesFor(string $uri): string
+    {
+        return OpenTimestampsCodec::encodeTimestampBytes(
+            (new OpenTimestampsTimestamp(str_repeat("\x00", 32)))
+                ->withAttestation(OpenTimestampsAttestation::pending($uri)),
+        );
     }
 
     // ────────────────────────────────────────────────────────────────────────
