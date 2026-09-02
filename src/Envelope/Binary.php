@@ -32,15 +32,29 @@ final readonly class Binary
 
     public static function ofBase64(string $base64): self
     {
-        $raw = Base64::decode($base64, strictPadding: true);
+        $raw = self::decode($base64);
         if (strlen($raw) > self::MAX_BYTES) {
             throw new InvalidPayload('Binary exceeds 64KB cap');
+        }
+        // The base64 string is stored verbatim in the canonical payload, so
+        // only the encoding ofRaw() would produce is accepted.
+        if (Base64::encode($raw) !== $base64) {
+            throw new InvalidPayload('Binary base64 is not canonical');
         }
         return new self($base64);
     }
 
     public function raw(): string
     {
-        return Base64::decode($this->base64, strictPadding: true);
+        return self::decode($this->base64);
+    }
+
+    private static function decode(string $base64): string
+    {
+        try {
+            return Base64::decode($base64, strictPadding: true);
+        } catch (\RangeException $e) {
+            throw new InvalidPayload('Binary is not valid base64: ' . $e->getMessage(), previous: $e);
+        }
     }
 }
