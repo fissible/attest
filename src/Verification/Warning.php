@@ -17,6 +17,7 @@ final readonly class Warning
     public const DETACHED_ANCHOR_INVALID_SIGNATURE = 'detached_anchor_invalid_signature';
     public const DETACHED_ANCHOR_UNTRUSTED = 'detached_anchor_untrusted';
     public const UNDECODABLE_RECORD_IGNORED = 'undecodable_record_ignored';
+    public const CALENDAR_UNAVAILABLE = 'calendar_unavailable';
 
     /**
      * @param array<string, mixed> $context

@@ -419,7 +419,7 @@ vendor/bin/attest <command> [options]
 | 1 | CLI / configuration / runtime error before a `VerificationOutcome` | Bad options, missing files, invalid arguments |
 | 2 | `INTEGRITY_VERIFIED_UNTRUSTED` | `--allow-untrusted` downgrades to 0 |
 | 3 | `ANCHOR_BELOW_MIN` | Anchor exists but is below `--min-anchor` threshold |
-| 4 | `INVALID_CHAIN` / `INVALID_SIGNATURE` / `INVALID_ANCHOR` | Also: bundle export failure; calendar unavailable (`anchor`); `upgrade --anchor-id` with no pending anchor for that id; `upgrade --all-pending` when every anchor failed and none succeeded |
+| 4 | `INVALID_CHAIN` / `INVALID_SIGNATURE` / `INVALID_ANCHOR` | Also: bundle export failure; calendar unavailable (`anchor`, or `upgrade --anchor-id` when no calendar could be reached); `upgrade --anchor-id` with no pending anchor for that id; `upgrade --all-pending` when every anchor failed and none succeeded |
 | 5 | `PROVIDER_DISAGREEMENT` | `--allow-provider-disagreement` downgrades to the strongest passing outcome |
 
 ### Examples
@@ -476,6 +476,8 @@ or renames within the same schema identifier):
 A stored record that cannot be decoded (not JSON, wrong field type, malformed signature
 encoding) is a verification outcome, not a runtime error: `verify` and `bundle:verify` report
 `invalid_chain` with `broken_at_seq` at the position of the unreadable record and exit 4.
+
+For `attest.cli.upgrade.v1`, `warnings[]` lists unreachable calendars, and an anchor for which no calendar answered is reported in `failed[]`.
 
 **`verified` and `completeness.asserted` are two different facts, and a consumer should render them
 separately.** `attest.cli.result.v1` carries a constant `completeness` block:

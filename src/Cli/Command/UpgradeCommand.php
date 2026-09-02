@@ -4,7 +4,6 @@ declare(strict_types=1);
 namespace Fissible\Attest\Cli\Command;
 
 use Fissible\Attest\Anchor\AnchorEnvelope;
-use Fissible\Attest\Anchor\OpenTimestamps\CalendarUnavailable;
 use Fissible\Attest\Anchor\OpenTimestamps\OpenTimestampsCalendarClient;
 use Fissible\Attest\Anchor\OpenTimestampsDriver;
 use Fissible\Attest\Anchor\ProofState;
@@ -265,16 +264,6 @@ final class UpgradeCommand extends Command
 
             try {
                 $newReceipt = $driver->upgrade($receipt);
-            } catch (CalendarUnavailable $e) {
-                $failed[] = [
-                    'anchor_id'   => $resolved->anchorId,
-                    'envelope_id' => $prevEnvId,
-                    'error'       => 'calendar unavailable: ' . $e->getMessage(),
-                ];
-                if ($verbose && ! $jsonMode) {
-                    $output->writeln(sprintf('failed %s: calendar unavailable: %s', $resolved->anchorId, $e->getMessage()));
-                }
-                continue;
             } catch (\Throwable $e) {
                 $failed[] = [
                     'anchor_id'   => $resolved->anchorId,
@@ -287,8 +276,30 @@ final class UpgradeCommand extends Command
                 continue;
             }
 
+            $attempt = $driver->lastUpgradeAttempt();
+            assert($attempt !== null);
+            foreach ($attempt->warnings as $warning) {
+                $warnings[] = sprintf(
+                    '%s: calendar unavailable: %s: %s',
+                    $resolved->anchorId,
+                    $warning->context['calendar'],
+                    $warning->context['error'],
+                );
+            }
+
             // If state did not advance (still PENDING), record as unchanged.
             if ($newReceipt->state === $receipt->state) {
+                if ($attempt->allUnreachable()) {
+                    $failed[] = [
+                        'anchor_id'   => $resolved->anchorId,
+                        'envelope_id' => $prevEnvId,
+                        'error'       => 'calendar unavailable: no calendar could be reached',
+                    ];
+                    if ($verbose && ! $jsonMode) {
+                        $output->writeln(sprintf('failed %s: calendar unavailable: no calendar could be reached', $resolved->anchorId));
+                    }
+                    continue;
+                }
                 $unchanged[] = [
                     'anchor_id'   => $resolved->anchorId,
                     'envelope_id' => $prevEnvId,
