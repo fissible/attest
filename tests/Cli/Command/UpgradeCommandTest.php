@@ -154,6 +154,22 @@ final class UpgradeCommandTest extends TestCase
         );
     }
 
+    /**
+     * A pending OTS receipt whose receipt_bytes are not a decodable OTS proof.
+     * The resolver accepts it (envelope fields are valid), but
+     * OpenTimestampsDriver::upgrade() throws, so the sweep records it as failed.
+     */
+    private function undecodablePendingReceipt(FileChainStore $store, string $chainId, int $fromSeq, int $toSeq): AnchorReceipt
+    {
+        return new AnchorReceipt(
+            driverName: OpenTimestampsDriver::NAME,
+            target: $this->targetFor($store, $chainId, $fromSeq, $toSeq),
+            state: ProofState::PENDING,
+            receiptBytes: 'not-an-ots-proof',
+            createdAtIso8601: '2026-06-06T00:00:00.000Z',
+        );
+    }
+
     private function appendOtsAnchorEnvelope(
         FileChainStore $store,
         string $chainId,
@@ -444,6 +460,81 @@ final class UpgradeCommandTest extends TestCase
         self::assertSame($payload['upgraded'][0]['new_envelope_id'], $tail->envelope->id);
         self::assertSame($anchorEnvelope->envelope->id, $tail->envelope->payload['supersedes_envelope_id']);
         self::assertSame('upgraded', $tail->envelope->payload['state']);
+        self::assertCount(1, $transactions);
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // --all-pending: every candidate failed and nothing succeeded → exit 4
+    // ────────────────────────────────────────────────────────────────────────
+
+    public function test_all_pending_exits_4_when_every_anchor_failed(): void
+    {
+        $store = $this->buildChain('allfail', 4);
+        $first = $this->undecodablePendingReceipt($store, 'allfail', 1, 2);
+        $second = $this->undecodablePendingReceipt($store, 'allfail', 3, 4);
+        $this->appendOtsAnchorEnvelope($store, 'allfail', $first);
+        $this->appendOtsAnchorEnvelope($store, 'allfail', $second);
+        $transactions = [];
+
+        $tester = $this->makeTester(function () use (&$transactions): OpenTimestampsCalendarClient {
+            return $this->calendarClient([], $transactions);
+        });
+        $exitCode = $tester->execute([
+            ...$this->baseArgs('allfail'),
+            '--all-pending' => true,
+            '--calendar-url' => ['https://calendar.example'],
+            '--json' => true,
+        ]);
+
+        $display = $tester->getDisplay();
+        self::assertSame(4, $exitCode, 'Expected exit 4 when every anchor failed; output: ' . $display);
+
+        $payload = json_decode($display, true);
+        self::assertIsArray($payload, 'Output must be valid JSON');
+        self::assertSame([], $payload['upgraded']);
+        self::assertSame([], $payload['unchanged']);
+        self::assertCount(2, $payload['failed']);
+        self::assertSame($first->anchorId, $payload['failed'][0]['anchor_id']);
+        self::assertSame($second->anchorId, $payload['failed'][1]['anchor_id']);
+        self::assertSame([], $transactions);
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // --all-pending: one failed, one upgraded → best-effort exit 0
+    // ────────────────────────────────────────────────────────────────────────
+
+    public function test_all_pending_exits_0_when_some_anchor_succeeded(): void
+    {
+        $store = $this->buildChain('partial', 4);
+        $failing = $this->undecodablePendingReceipt($store, 'partial', 1, 2);
+        $healthy = $this->otsReceipt($store, 'partial', 3, 4, ProofState::PENDING);
+        $this->appendOtsAnchorEnvelope($store, 'partial', $failing);
+        $this->appendOtsAnchorEnvelope($store, 'partial', $healthy);
+        $transactions = [];
+
+        $tester = $this->makeTester(function () use (&$transactions): OpenTimestampsCalendarClient {
+            return $this->calendarClient(
+                [new Response(200, ['Content-Type' => OpenTimestampsCalendarClient::CONTENT_TYPE], $this->bitcoinTimestampBytes())],
+                $transactions,
+            );
+        });
+        $exitCode = $tester->execute([
+            ...$this->baseArgs('partial'),
+            '--all-pending' => true,
+            '--calendar-url' => ['https://calendar.example'],
+            '--json' => true,
+        ]);
+
+        $display = $tester->getDisplay();
+        self::assertSame(0, $exitCode, 'Expected best-effort exit 0 when one anchor upgraded; output: ' . $display);
+
+        $payload = json_decode($display, true);
+        self::assertIsArray($payload, 'Output must be valid JSON');
+        self::assertCount(1, $payload['upgraded']);
+        self::assertSame($healthy->anchorId, $payload['upgraded'][0]['anchor_id']);
+        self::assertSame([], $payload['unchanged']);
+        self::assertCount(1, $payload['failed']);
+        self::assertSame($failing->anchorId, $payload['failed'][0]['anchor_id']);
         self::assertCount(1, $transactions);
     }
 }
