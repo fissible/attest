@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
+## [1.4.0] - 2026-09-02
+
+### Fixed
+- Stop FileChainStore reads at torn lines and report corrupt records as UndecodableRecord
+- Report undecodable stored records as INVALID_CHAIN at the broken sequence
+- Validate verify --from/--to and emit structured output for runtime errors
+- Reject unsupported envelope versions in EnvelopeCodec
+- Reject overflowing OTS varuints instead of wrapping
+- Surface malformed base64 in Binary as InvalidPayload
+- Reclaim expired anchor claims before skipping a range
+- Export the strongest receipt when an anchor has been upgraded
+- Exit 4 when an upgrade sweep upgrades nothing and every anchor failed
+- Report unreachable calendars from upgrade instead of treating them as unchanged
 ## [1.3.0] - 2026-08-19
 
 ### Added
