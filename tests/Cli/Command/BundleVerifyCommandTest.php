@@ -124,6 +124,35 @@ final class BundleVerifyCommandTest extends TestCase
         self::assertTrue($zip->close());
     }
 
+    public function test_trusted_key_file_option_help_documents_key_id_prefix(): void
+    {
+        $description = (new BundleVerifyCommand())->getDefinition()->getOption('trusted-key-file')->getDescription();
+
+        self::assertStringContainsString('<key_id>=', $description);
+        self::assertStringContainsString('fingerprint', $description);
+    }
+
+    public function test_trusted_key_file_with_key_id_verifies_bundle(): void
+    {
+        [$bundlePath, $kp] = $this->buildAndExportBundle('chain1', 3); // signed with keyId 'k1'
+        $pub = $this->tmpDir . '/k1.pub';
+        file_put_contents($pub, base64_encode($kp->publicKey) . "\n");
+
+        $tester = $this->makeTester();
+        $exitCode = $tester->execute([
+            '--bundle' => $bundlePath,
+            '--trusted-key-file' => ['k1=' . $pub],
+            '--json' => true,
+        ]);
+
+        $display = $tester->getDisplay();
+        self::assertSame(0, $exitCode, $display);
+        $payload = json_decode($display, true);
+        self::assertIsArray($payload);
+        self::assertSame('verified', $payload['outcome']);
+        self::assertSame(['k1' => 3], $payload['signature_summary']['trusted_keys_matched']);
+    }
+
     public function test_undecodable_chain_line_exits_4_with_structured_json(): void
     {
         [$bundlePath, $kp] = $this->buildAndExportBundle('chain1', 3);
