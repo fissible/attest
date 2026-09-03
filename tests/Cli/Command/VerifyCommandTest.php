@@ -244,6 +244,85 @@ final class VerifyCommandTest extends TestCase
         self::assertSame(4, $exitCode);
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Issue #36: --trusted-key-file accepts "<key_id>=<path>"
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function test_trusted_key_file_with_key_id_verifies_human_keyed_chain(): void
+    {
+        $kp = KeyPair::generate();
+        $this->buildChain('chain1', $kp, 2); // signed with keyId 'k1'
+        $pub = $this->tmpDir . '/k1.pub';
+        file_put_contents($pub, base64_encode($kp->publicKey) . "\n");
+
+        $tester = $this->makeTester();
+        $exitCode = $tester->execute([
+            '--storage-root' => $this->tmpDir,
+            '--chain' => 'chain1',
+            '--trusted-key-file' => ['k1=' . $pub],
+            '--json' => true,
+        ]);
+
+        $display = $tester->getDisplay();
+        self::assertSame(0, $exitCode, $display);
+        $payload = json_decode($display, true);
+        self::assertIsArray($payload);
+        self::assertSame('verified', $payload['outcome']);
+        self::assertSame(2, $payload['chain_stats']['trusted_signatures']);
+        self::assertSame(['k1' => 2], $payload['signature_summary']['trusted_keys_matched']);
+    }
+
+    public function test_trusted_key_file_without_key_id_cannot_match_human_keyed_chain(): void
+    {
+        // Documents the fingerprint-only behaviour of a plain path: the key is
+        // right, but nothing routes envelopes signed under 'k1' to it.
+        $kp = KeyPair::generate();
+        $this->buildChain('chain1', $kp, 2);
+        $pub = $this->tmpDir . '/k1.pub';
+        file_put_contents($pub, base64_encode($kp->publicKey) . "\n");
+
+        $tester = $this->makeTester();
+        $exitCode = $tester->execute([
+            '--storage-root' => $this->tmpDir,
+            '--chain' => 'chain1',
+            '--trusted-key-file' => [$pub],
+            '--json' => true,
+        ]);
+
+        self::assertSame(2, $exitCode);
+        $payload = json_decode($tester->getDisplay(), true);
+        self::assertIsArray($payload);
+        self::assertSame('integrity_verified_untrusted', $payload['outcome']);
+        self::assertSame(0, $payload['chain_stats']['trusted_signatures']);
+    }
+
+    public function test_trusted_key_file_option_help_documents_key_id_prefix(): void
+    {
+        $description = (new VerifyCommand())->getDefinition()->getOption('trusted-key-file')->getDescription();
+
+        self::assertStringContainsString('<key_id>=', $description);
+        self::assertStringContainsString('fingerprint', $description);
+    }
+
+    public function test_trusted_key_given_a_path_exits_1_and_points_at_trusted_key_file(): void
+    {
+        $kp = KeyPair::generate();
+        $this->buildChain('chain1', $kp, 1);
+        $pub = $this->tmpDir . '/k1.pub';
+        file_put_contents($pub, base64_encode($kp->publicKey) . "\n");
+
+        $tester = $this->makeTester();
+        $exitCode = $tester->execute([
+            '--storage-root' => $this->tmpDir,
+            '--chain' => 'chain1',
+            '--trusted-key' => [$pub],
+        ]);
+
+        self::assertSame(1, $exitCode);
+        self::assertStringStartsWith('error: ', $tester->getDisplay());
+        self::assertStringContainsString('--trusted-key-file', $tester->getDisplay());
+    }
+
     public function test_undecodable_stored_line_exits_4_with_structured_json(): void
     {
         $kp = KeyPair::generate();
