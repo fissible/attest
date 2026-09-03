@@ -85,7 +85,10 @@ final class FileChainStoreAppendTest extends TestCase
         $this->assertSame(1, $appended->envelope->seq);
         $this->assertNull($appended->envelope->prevHash);
         $this->assertSame($appended->signedCanonicalBytes() . "\n", (string) file_get_contents($path));
-        $this->assertSame(1, $store->tail('c1')?->envelope->seq);
+        // Fresh instance: phpstan otherwise narrows tail() to the null asserted above.
+        $tail = (new FileChainStore($this->root))->tail('c1');
+        $this->assertNotNull($tail);
+        $this->assertSame(1, $tail->envelope->seq);
     }
 
     public function test_append_after_torn_tail_with_fsync_enabled(): void
