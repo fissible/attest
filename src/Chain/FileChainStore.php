@@ -21,6 +21,15 @@ final class FileChainStore implements ChainStore, RawChainStore
         }
     }
 
+    /**
+     * Appends an envelope under the per-chain lock.
+     *
+     * A torn trailing line is discarded under that lock before the tail is
+     * read. This is the only repair append() performs: a trailing line that
+     * contains a "\n" is not torn (canonical JSON has no raw newlines), but
+     * corruption, which tail() reports as UndecodableRecord and append() does
+     * not repair.
+     */
     public function append(string $chainId, callable $buildAndSign): SignedEnvelope
     {
         $lockPath = $this->mapper->lockPath($chainId);
@@ -34,6 +43,8 @@ final class FileChainStore implements ChainStore, RawChainStore
                 throw new ChainLockUnavailable($chainId);
             }
 
+            $jsonlPath = $this->mapper->jsonlPath($chainId);
+            $this->discardTornTrailingLine($jsonlPath);
             $tail = $this->tail($chainId);
             $nextSeq = $tail === null ? 1 : ($tail->envelope->seq + 1);
             $prevHash = $tail === null ? null : $tail->selfHash();
@@ -60,7 +71,6 @@ final class FileChainStore implements ChainStore, RawChainStore
                 ));
             }
 
-            $jsonlPath = $this->mapper->jsonlPath($chainId);
             $line = $signed->signedCanonicalBytes() . "\n";
             $dataFp = fopen($jsonlPath, 'ab');
             if ($dataFp === false) {
@@ -347,6 +357,47 @@ final class FileChainStore implements ChainStore, RawChainStore
                 }
             }
             return null;
+        } finally {
+            fclose($fp);
+        }
+    }
+
+    /**
+     * Discards an unterminated final line, if present.
+     */
+    private function discardTornTrailingLine(string $path): void
+    {
+        if (! is_file($path)) {
+            return;
+        }
+
+        $fp = fopen($path, 'r+b');
+        if ($fp === false) {
+            throw new \RuntimeException("Could not open chain file: $path");
+        }
+
+        try {
+            clearstatcache(true, $path);
+            $size = filesize($path);
+            if ($size === false || $size === 0) {
+                return;
+            }
+
+            fseek($fp, $size - 1);
+            if (fread($fp, 1) === "\n") {
+                return;
+            }
+
+            $lastNewline = $this->lastNewlinePosition($fp, $size);
+            $newSize = max(0, ($lastNewline ?? -1) + 1);
+            if (! ftruncate($fp, $newSize)) {
+                throw new \RuntimeException("Could not truncate chain file: $path");
+            }
+            fflush($fp);
+            if ($this->fsync) {
+                fsync($fp);
+            }
+            clearstatcache(true, $path);
         } finally {
             fclose($fp);
         }
