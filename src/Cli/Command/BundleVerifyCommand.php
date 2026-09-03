@@ -47,7 +47,7 @@ final class BundleVerifyCommand extends Command
                 'trusted-key-file',
                 null,
                 InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY,
-                'Path to a .pub file containing a base64-encoded Ed25519 public key. Repeatable.',
+                'Path to a .pub file containing a base64-encoded Ed25519 public key, as <key_id>=<path> to bind it to the key id envelopes were signed under; a plain path matches only envelopes whose key_id is the key fingerprint. Repeatable.',
             )
             ->addOption('min-anchor', null, InputOption::VALUE_REQUIRED, 'Minimum anchor outcome required (local_only, pending, upgraded_no_headers, remote_header_confirmed, bitcoin_verified).')
             ->addOption('allow-provider-disagreement', null, InputOption::VALUE_NONE, 'Allow header-provider disagreement; use strongest passing outcome.')

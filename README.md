@@ -429,7 +429,7 @@ vendor/bin/attest <command> [options]
 vendor/bin/attest verify \
   --chain tenant:5 \
   --from 1 --to 1000 \
-  --trusted-key /etc/attest/keys/app-prod-2026-01.pub \
+  --trusted-key-file app-prod-2026-01=/etc/attest/keys/app-prod-2026-01.pub \
   --min-anchor bitcoin_verified \
   --json
 
@@ -442,7 +442,7 @@ vendor/bin/attest bundle:export \
 # Verify all chains in a bundle
 vendor/bin/attest bundle:verify \
   --bundle /tmp/export-20260605.attest.zip \
-  --trusted-key /etc/attest/keys/app-prod-2026-01.pub \
+  --trusted-key-file app-prod-2026-01=/etc/attest/keys/app-prod-2026-01.pub \
   --min-anchor remote_header_confirmed \
   --json
 
@@ -459,6 +459,8 @@ vendor/bin/attest upgrade \
   --rpc-cookie /var/lib/bitcoin/.bitcoin/.cookie \
   --json
 ```
+
+With `--trusted-key-file`, a plain path (without a key id) registers the key by fingerprint only, so it matches only envelopes whose `key_id` is that fingerprint. Give the key id to verify chains signed under a human-readable id.
 
 ### JSON output schema
 
@@ -521,7 +523,7 @@ size caps, a total size cap, and a compression-ratio guard against bundles produ
 writers.
 
 **Trust model:** keys claimed inside the bundle are NOT trusted by themselves. Operators must
-supply trusted public keys via `--trusted-key <path>` or `--trusted-key-file <path>` at
+supply trusted public keys via `--trusted-key <key_id>=<base64>` or `--trusted-key-file [<key_id>=]<path>` at
 verification time.
 
 ## Stability & Versioning
